@@ -1,20 +1,41 @@
-# Multi-stage security-hardened Dockerfile for React/Vite Frontend
+
+# ==========================================
+# Stage 1: Build React + Vite frontend
+# ==========================================
 FROM node:20-alpine AS build
 
 WORKDIR /app
-COPY package*.json ./
-RUN npm ci --ignore-scripts
+
+# Install dependencies reproducibly
+COPY package.json package-lock.json ./
+RUN npm ci
+
+# Copy application source
 COPY . .
+
+# Build production assets
 RUN npm run build
 
-# Production runner with non-root unprivileged Nginx
+
+# ==========================================
+# Stage 2: Production Nginx server
+# ==========================================
 FROM nginxinc/nginx-unprivileged:alpine AS runner
 
-COPY --from=build /app/dist /usr/share/nginx/html
+# Remove default Nginx configuration
+RUN rm -f /etc/nginx/conf.d/default.conf
+
+# Add production Nginx configuration
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Copy built frontend assets
+COPY --from=build --chown=nginx:nginx /app/dist /usr/share/nginx/html
+
+# Nginx unprivileged image listens on port 8080
 EXPOSE 8080
 
-HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
+# Container health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD wget --quiet --tries=1 --spider http://127.0.0.1:8080/ || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]
-
