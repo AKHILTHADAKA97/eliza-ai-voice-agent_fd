@@ -113,5 +113,38 @@ export const adminApi = {
       body: JSON.stringify({ status, admin_notes }),
     });
   },
+
+  unblockCustomer: async (customerId) => {
+    return adminRequest(`/api/v1/admin/customers/${encodeURIComponent(customerId)}/unblock`, {
+      method: "POST",
+    });
+  },
+
+  deleteCustomer: async (customerId) => {
+    return adminRequest(`/api/v1/admin/customers/${encodeURIComponent(customerId)}`, {
+      method: "DELETE",
+    });
+  },
+
+  bulkDeleteCustomers: async (customerIds) => {
+    return adminRequest(`/api/v1/admin/customers/bulk-delete`, {
+      method: "POST",
+      body: JSON.stringify({ customer_ids: customerIds }),
+    });
+  },
+
+  deleteFeedback: async (feedbackId) => {
+    return adminRequest(`/api/v1/admin/feedback/${encodeURIComponent(feedbackId)}`, {
+      method: "DELETE",
+    });
+  },
+
+  bulkDeleteFeedback: async (feedbackIds) => {
+    return adminRequest(`/api/v1/admin/feedback/bulk-delete`, {
+      method: "POST",
+      body: JSON.stringify({ feedback_ids: feedbackIds }),
+    });
+  },
 };
+
 

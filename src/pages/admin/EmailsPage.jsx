@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ShieldAlert,
+  ShieldCheck,
   CheckCircle2,
   Clock,
   Calendar,
@@ -18,6 +19,10 @@ import {
   Star,
   MessageSquare,
   Download,
+  Trash2,
+  CheckSquare,
+  Square,
+  AlertTriangle,
 } from "lucide-react";
 import AdminLayout from "../../components/AdminLayout.jsx";
 import { adminApi } from "../../services/adminApi.js";
@@ -38,10 +43,20 @@ export default function EmailsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  // Multi-select & Actions State
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [actionLoading, setActionLoading] = useState(false);
+  const [toastMsg, setToastMsg] = useState("");
+
   // Customer Detail Modal state
   const [selectedCustomerId, setSelectedCustomerId] = useState(null);
   const [detailData, setDetailData] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+
+  const showToast = (msg) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(""), 4500);
+  };
 
   const fetchEmails = async () => {
     setLoading(true);
@@ -70,7 +85,7 @@ export default function EmailsPage() {
 
   useEffect(() => {
     fetchEmails();
-  }, [page, perPage, statusFilter, deviceFilter, usageFilter, sortBy]);
+  }, [page, perPage, statusFilter, deviceFilter, usageFilter, sortBy, startDate, endDate]);
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
@@ -86,7 +101,116 @@ export default function EmailsPage() {
     setSortBy("newest");
     setStartDate("");
     setEndDate("");
+    setSelectedIds(new Set());
     setPage(1);
+  };
+
+  // Row selection
+  const handleSelectAll = (e) => {
+    if (e.target.checked) {
+      setSelectedIds(new Set(items.map((i) => i.id)));
+    } else {
+      setSelectedIds(new Set());
+    }
+  };
+
+  const handleToggleSelect = (id, e) => {
+    if (e) e.stopPropagation();
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // Admin Actions: Unblock
+  const handleUnblock = async (customerId, e) => {
+    if (e) e.stopPropagation();
+    if (!window.confirm("Immediately unblock this customer and restore their 3 questions access?")) {
+      return;
+    }
+    setActionLoading(true);
+    try {
+      const res = await adminApi.unblockCustomer(customerId);
+      showToast(res.message || "User unblocked successfully!");
+      setItems((prev) =>
+        prev.map((c) =>
+          c.id === customerId
+            ? {
+                ...c,
+                blocked: false,
+                access_status: "eligible",
+                remaining_questions: 3,
+                questions_used: 0,
+                blocked_until: null,
+              }
+            : c
+        )
+      );
+      if (detailData?.customer?.id === customerId) {
+        setDetailData((prev) => ({
+          ...prev,
+          customer: { ...prev.customer, status: "eligible" },
+        }));
+      }
+    } catch (err) {
+      alert("Failed to unblock customer: " + err.message);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Admin Actions: Delete single customer
+  const handleDelete = async (customerId, email, e) => {
+    if (e) e.stopPropagation();
+    if (!window.confirm(`Permanently delete customer ${email}? All access periods, questions, and records will be deleted.`)) {
+      return;
+    }
+    setActionLoading(true);
+    try {
+      await adminApi.deleteCustomer(customerId);
+      showToast(`Permanently deleted ${email}`);
+      setItems((prev) => prev.filter((c) => c.id !== customerId));
+      setTotal((prev) => Math.max(0, prev - 1));
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(customerId);
+        return next;
+      });
+      if (selectedCustomerId === customerId) {
+        closeDetail();
+      }
+    } catch (err) {
+      alert("Failed to delete customer: " + err.message);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Admin Actions: Bulk Delete
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    if (!window.confirm(`Permanently delete ${selectedIds.size} selected customer records? This action cannot be undone.`)) {
+      return;
+    }
+    setActionLoading(true);
+    try {
+      const idsArray = Array.from(selectedIds);
+      const res = await adminApi.bulkDeleteCustomers(idsArray);
+      showToast(res.message || `Deleted ${idsArray.length} customers`);
+      const deletedSet = new Set(idsArray);
+      setItems((prev) => prev.filter((c) => !deletedSet.has(c.id)));
+      setTotal((prev) => Math.max(0, prev - deletedSet.size));
+      setSelectedIds(new Set());
+      if (selectedCustomerId && deletedSet.has(selectedCustomerId)) {
+        closeDetail();
+      }
+    } catch (err) {
+      alert("Failed to delete records: " + err.message);
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const openCustomerDetail = async (customerId) => {
@@ -111,7 +235,7 @@ export default function EmailsPage() {
     try {
       const res = await adminApi.getEmails({
         page: 1,
-        per_page: 1000,
+        per_page: 2000,
         search: search.trim(),
         status: statusFilter,
         device: deviceFilter,
@@ -191,9 +315,17 @@ export default function EmailsPage() {
 
   return (
     <AdminLayout
-      title="Email IDs &amp; Access Analytics"
+      title="Email IDs & Access Analytics"
       subtitle="Searchable and sortable registry of all customer accounts, active restriction windows, and usage balances."
     >
+      {/* Toast Notification Banner */}
+      {toastMsg && (
+        <div className="admin-toast-banner">
+          <CheckCircle2 size={16} />
+          <span>{toastMsg}</span>
+        </div>
+      )}
+
       {/* Search and Filters Toolbar */}
       <div className="emails-toolbar">
         <form onSubmit={handleSearchSubmit} className="search-box">
@@ -219,6 +351,50 @@ export default function EmailsPage() {
         </form>
 
         <div className="filter-selects">
+          {/* Calendar Date Filters */}
+          <div className="calendar-date-group">
+            <Calendar size={14} className="cal-icon" />
+            <div className="date-field">
+              <span className="date-label">From</span>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => {
+                  setStartDate(e.target.value);
+                  setPage(1);
+                }}
+                className="filter-date-input"
+              />
+            </div>
+            <span className="date-sep">→</span>
+            <div className="date-field">
+              <span className="date-label">To</span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => {
+                  setEndDate(e.target.value);
+                  setPage(1);
+                }}
+                className="filter-date-input"
+              />
+            </div>
+            {(startDate || endDate) && (
+              <button
+                type="button"
+                className="btn-clear-date"
+                onClick={() => {
+                  setStartDate("");
+                  setEndDate("");
+                  setPage(1);
+                }}
+                title="Clear date range"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+
           {/* Status Filter */}
           <select
             value={statusFilter}
@@ -275,8 +451,8 @@ export default function EmailsPage() {
             }}
             className="filter-select"
           >
-            <option value="newest">Sort: Newest First</option>
-            <option value="oldest">Sort: Oldest First</option>
+            <option value="newest">Sort: Newest</option>
+            <option value="oldest">Sort: Oldest</option>
             <option value="most_active">Sort: Most Active</option>
           </select>
 
@@ -299,7 +475,7 @@ export default function EmailsPage() {
             <span>Export CSV</span>
           </button>
 
-          {(search || statusFilter || deviceFilter || usageFilter || sortBy !== "newest") && (
+          {(search || statusFilter || deviceFilter || usageFilter || sortBy !== "newest" || startDate || endDate) && (
             <button
               type="button"
               className="btn-clear-all"
@@ -310,6 +486,36 @@ export default function EmailsPage() {
           )}
         </div>
       </div>
+
+      {/* Floating Bulk Action Bar */}
+      {selectedIds.size > 0 && (
+        <div className="bulk-actions-card">
+          <div className="bulk-info">
+            <CheckSquare size={17} className="bulk-icon" />
+            <span>
+              <b>{selectedIds.size}</b> customer(s) selected
+            </span>
+          </div>
+          <div className="bulk-btns">
+            <button
+              type="button"
+              className="btn-bulk-delete"
+              onClick={handleBulkDelete}
+              disabled={actionLoading}
+            >
+              <Trash2 size={14} />
+              <span>Delete Selected ({selectedIds.size})</span>
+            </button>
+            <button
+              type="button"
+              className="btn-bulk-cancel"
+              onClick={() => setSelectedIds(new Set())}
+            >
+              Cancel Selection
+            </button>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="table-error-banner">
@@ -324,10 +530,19 @@ export default function EmailsPage() {
           <table className="admin-table">
             <thead>
               <tr>
+                <th style={{ width: 42, textAlign: "center" }}>
+                  <input
+                    type="checkbox"
+                    className="row-checkbox"
+                    checked={items.length > 0 && items.every((i) => selectedIds.has(i.id))}
+                    onChange={handleSelectAll}
+                    title="Select all on this page"
+                  />
+                </th>
                 <th>Email Address</th>
                 <th>Status</th>
-                <th>Questions Used</th>
-                <th>Remaining</th>
+                <th>Usage</th>
+                <th>Left</th>
                 <th>First Seen</th>
                 <th>First Question</th>
                 <th>Last Active</th>
@@ -341,66 +556,100 @@ export default function EmailsPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="12" className="table-loading-cell">
+                  <td colSpan="13" className="table-loading-cell">
                     <span className="table-spinner" /> Loading records...
                   </td>
                 </tr>
               ) : items.length === 0 ? (
                 <tr>
-                  <td colSpan="12" className="table-empty-cell">
+                  <td colSpan="13" className="table-empty-cell">
                     No matching customer emails found.
                   </td>
                 </tr>
               ) : (
-                items.map((row) => (
-                  <tr
-                    key={row.id}
-                    className="table-row-clickable"
-                    onClick={() => openCustomerDetail(row.id)}
-                  >
-                    <td className="font-semibold text-white">
-                      <span className="email-cell">{row.email}</span>
-                    </td>
-                    <td>
-                      <StatusBadge status={row.access_status} blocked={row.blocked} />
-                    </td>
-                    <td>
-                      <span className="usage-pill">{row.questions_used}</span>
-                    </td>
-                    <td>
-                      <span className="font-mono">{row.remaining_questions}</span>
-                    </td>
-                    <td className="text-muted">{formatDate(row.first_seen_at)}</td>
-                    <td className="text-muted">{formatDate(row.first_question_at)}</td>
-                    <td className="text-muted">{formatDate(row.last_activity_at)}</td>
-                    <td>
-                      <span className="font-mono">{row.visits_count}</span>
-                    </td>
-                    <td>
-                      <DevicePill device={row.device_category} />
-                    </td>
-                    <td>
-                      {row.blocked_until ? (
-                        <span className="blocked-date-tag">{formatDate(row.blocked_until)}</span>
-                      ) : (
-                        <span className="text-muted">—</span>
-                      )}
-                    </td>
-                    <td className="text-muted">{formatDate(row.current_period_expires_at)}</td>
-                    <td className="text-right">
-                      <button
-                        type="button"
-                        className="btn-view-detail"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openCustomerDetail(row.id);
-                        }}
-                      >
-                        <Eye size={13} /> Details
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                items.map((row) => {
+                  const isBlocked = row.blocked || (row.remaining_questions !== undefined && row.remaining_questions <= 0) || row.access_status === "blocked";
+                  const isSelected = selectedIds.has(row.id);
+                  return (
+                    <tr
+                      key={row.id}
+                      className={`table-row-clickable ${isSelected ? "row-selected" : ""}`}
+                      onClick={() => openCustomerDetail(row.id)}
+                    >
+                      <td style={{ textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          className="row-checkbox"
+                          checked={isSelected}
+                          onChange={(e) => handleToggleSelect(row.id, e)}
+                        />
+                      </td>
+                      <td className="font-semibold text-white">
+                        <span className="email-cell">{row.email}</span>
+                      </td>
+                      <td>
+                        <StatusBadge status={row.access_status} blocked={row.blocked} />
+                      </td>
+                      <td>
+                        <span className="usage-pill">{row.questions_used}/3</span>
+                      </td>
+                      <td>
+                        <span className="font-mono text-purple-200">{row.remaining_questions}</span>
+                      </td>
+                      <td className="text-muted">{formatDate(row.first_seen_at)}</td>
+                      <td className="text-muted">{formatDate(row.first_question_at)}</td>
+                      <td className="text-muted">{formatDate(row.last_activity_at)}</td>
+                      <td>
+                        <span className="font-mono">{row.visits_count}</span>
+                      </td>
+                      <td>
+                        <DevicePill device={row.device_category} />
+                      </td>
+                      <td>
+                        {row.blocked_until ? (
+                          <span className="blocked-date-tag">{formatDate(row.blocked_until)}</span>
+                        ) : (
+                          <span className="text-muted">—</span>
+                        )}
+                      </td>
+                      <td className="text-muted">{formatDate(row.current_period_expires_at)}</td>
+                      <td className="text-right" onClick={(e) => e.stopPropagation()}>
+                        <div className="row-actions-group">
+                          {isBlocked && (
+                            <button
+                              type="button"
+                              className="btn-action-unblock"
+                              onClick={(e) => handleUnblock(row.id, e)}
+                              disabled={actionLoading}
+                              title="Unblock customer & restore 3 questions"
+                            >
+                              <ShieldCheck size={13} />
+                              <span>Unblock</span>
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="btn-view-detail"
+                            onClick={() => openCustomerDetail(row.id)}
+                            title="View Customer Profile"
+                          >
+                            <Eye size={13} />
+                            <span>Details</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-action-delete"
+                            onClick={(e) => handleDelete(row.id, row.email, e)}
+                            disabled={actionLoading}
+                            title="Permanently delete customer"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -431,17 +680,21 @@ export default function EmailsPage() {
             <button
               type="button"
               className="btn-page"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              title="Previous page"
             >
               <ChevronLeft size={16} />
             </button>
-            <span className="current-page-num">{page}</span>
+
+            <span className="current-page-num">{page} / {totalPages}</span>
+
             <button
               type="button"
               className="btn-page"
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={page >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              title="Next page"
             >
               <ChevronRight size={16} />
             </button>
@@ -455,48 +708,72 @@ export default function EmailsPage() {
           <div className="detail-modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="detail-modal-head">
               <div>
-                <span className="detail-eyebrow">CUSTOMER PROFILE &amp; AUDIT TRAIL</span>
-                <h3>{detailData?.customer?.email || "Loading customer..."}</h3>
+                <span className="detail-eyebrow">CUSTOMER PROFILE &amp; AUDIT</span>
+                <h3>{detailData?.customer?.email || "Loading..."}</h3>
               </div>
-              <button type="button" className="btn-modal-close" onClick={closeDetail}>
-                <X size={18} />
-              </button>
+              <div className="head-actions">
+                {detailData?.customer && (
+                  <>
+                    <button
+                      type="button"
+                      className="btn-drawer-unblock"
+                      onClick={(e) => handleUnblock(detailData.customer.id, e)}
+                      title="Unblock user and restore 3 questions"
+                    >
+                      <ShieldCheck size={14} /> Unblock
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-drawer-delete"
+                      onClick={(e) => handleDelete(detailData.customer.id, detailData.customer.email, e)}
+                      title="Delete customer record"
+                    >
+                      <Trash2 size={14} /> Delete
+                    </button>
+                  </>
+                )}
+                <button type="button" className="btn-modal-close" onClick={closeDetail}>
+                  <X size={18} />
+                </button>
+              </div>
             </div>
 
             {loadingDetail ? (
               <div className="detail-loading">
-                <span className="table-spinner" /> Retrieving customer history...
+                <span className="table-spinner" /> Loading full customer profile...
               </div>
             ) : detailData ? (
               <div className="detail-modal-body">
-                {/* Profile Overview Card */}
+                {/* Profile Summary */}
                 <div className="profile-summary-box">
                   <div className="summary-item">
-                    <span>Account Status</span>
-                    <b>{detailData.customer.status}</b>
-                  </div>
-                  <div className="summary-item">
                     <span>First Seen</span>
-                    <b>{formatDate(detailData.customer.first_seen_at)}</b>
+                    <b>{formatDate(detailData.customer?.first_seen_at)}</b>
                   </div>
                   <div className="summary-item">
                     <span>Last Active</span>
-                    <b>{formatDate(detailData.customer.last_activity_at)}</b>
+                    <b>{formatDate(detailData.customer?.last_activity_at)}</b>
                   </div>
                   <div className="summary-item">
                     <span>Primary Device</span>
-                    <b>{detailData.customer.device_type}</b>
+                    <b>{detailData.customer?.device_type || "unknown"}</b>
+                  </div>
+                  <div className="summary-item">
+                    <span>Account Status</span>
+                    <b>
+                      <span className="status-highlight">{detailData.customer?.status}</span>
+                    </b>
                   </div>
                 </div>
 
-                {/* 20-Day Access Period History */}
+                {/* Access Periods */}
                 <div className="detail-section">
-                  <h4>20-Day Access Period History ({detailData.periods?.length || 0})</h4>
-                  <div className="detail-cards-list">
+                  <h4>Access Cycles &amp; Quotas ({detailData.periods?.length || 0})</h4>
+                  <div className="periods-list">
                     {detailData.periods?.map((p) => (
-                      <div key={p.id} className="history-period-card">
+                      <div key={p.id} className="period-card">
                         <div className="period-card-top">
-                          <span className={`status-tag status-${p.status}`}>{p.status.toUpperCase()}</span>
+                          <span className={`period-status status-${p.status}`}>{p.status}</span>
                           <span className="period-q-count">
                             Questions: <b>{p.questions_used}/3</b>
                           </span>
@@ -584,6 +861,28 @@ export default function EmailsPage() {
       )}
 
       <style>{`
+        .admin-toast-banner {
+          position: sticky;
+          top: 10px;
+          z-index: 100;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          background: #064e3b;
+          border: 1px solid #10b981;
+          color: #a7f3d0;
+          padding: 10px 18px;
+          border-radius: 10px;
+          margin-bottom: 18px;
+          font-size: 13.5px;
+          font-weight: 600;
+          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+          animation: slideDown 0.25s ease-out;
+        }
+        @keyframes slideDown {
+          from { opacity: 0; transform: translateY(-8px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
         .emails-toolbar {
           display: flex;
           align-items: center;
@@ -633,15 +932,71 @@ export default function EmailsPage() {
           gap: 8px;
           flex-wrap: wrap;
         }
+        .calendar-date-group {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          background: #0b120e;
+          border: 1px solid rgba(192, 132, 252, 0.3);
+          border-radius: 9px;
+          padding: 5px 10px;
+        }
+        .cal-icon {
+          color: #c084fc;
+        }
+        .date-field {
+          display: flex;
+          align-items: center;
+          gap: 5px;
+        }
+        .date-label {
+          font-size: 10.5px;
+          font-family: 'DM Mono', monospace;
+          color: rgba(226, 238, 230, 0.5);
+          text-transform: uppercase;
+        }
+        .filter-date-input {
+          background: #080d0b;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          border-radius: 6px;
+          color: #ffffff;
+          padding: 4px 6px;
+          font-size: 11.5px;
+          outline: none;
+        }
+        .filter-date-input::-webkit-calendar-picker-indicator {
+          filter: invert(1);
+          cursor: pointer;
+        }
+        .date-sep {
+          color: rgba(226, 238, 230, 0.4);
+          font-size: 12px;
+        }
+        .btn-clear-date {
+          background: none;
+          border: none;
+          color: rgba(226, 238, 230, 0.6);
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          padding: 2px;
+        }
+        .btn-clear-date:hover {
+          color: #fca5a5;
+        }
         .filter-select {
           background: #0b120e;
-          border: 1px solid rgba(255, 255, 255, 0.1);
+          border: 1px solid rgba(255, 255, 255, 0.12);
           border-radius: 8px;
           padding: 8px 12px;
           font-size: 12.5px;
           color: #e2eee6;
           outline: none;
           cursor: pointer;
+        }
+        .filter-select option {
+          background: #0b120e;
+          color: #ffffff;
         }
         .btn-action-refresh {
           background: #0b120e;
@@ -686,12 +1041,72 @@ export default function EmailsPage() {
           cursor: pointer;
           text-decoration: underline;
         }
+        /* Bulk Actions Card */
+        .bulk-actions-card {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 12px 20px;
+          background: rgba(192, 132, 252, 0.1);
+          border: 1px solid rgba(192, 132, 252, 0.4);
+          border-radius: 12px;
+          margin-bottom: 16px;
+          box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+        }
+        .bulk-info {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          font-size: 13.5px;
+          color: #ffffff;
+        }
+        .bulk-icon {
+          color: #c084fc;
+        }
+        .bulk-btns {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        .btn-bulk-delete {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          background: #dc2626;
+          border: 1px solid #ef4444;
+          color: #ffffff;
+          padding: 7px 14px;
+          border-radius: 8px;
+          font-size: 12.5px;
+          font-weight: 700;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .btn-bulk-delete:hover:not(:disabled) {
+          background: #b91c1c;
+        }
+        .btn-bulk-cancel {
+          background: transparent;
+          border: 1px solid rgba(255, 255, 255, 0.18);
+          color: rgba(226, 238, 230, 0.8);
+          padding: 7px 12px;
+          border-radius: 8px;
+          font-size: 12px;
+          cursor: pointer;
+        }
+        .row-checkbox {
+          width: 16px;
+          height: 16px;
+          accent-color: #c084fc;
+          cursor: pointer;
+        }
         .table-card {
           background: #0b120e;
-          border: 1px solid rgba(255, 255, 255, 0.08);
+          border: 1px solid rgba(192, 132, 252, 0.18);
           border-radius: 14px;
           overflow: hidden;
           box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+          margin-bottom: 40px;
         }
         .table-responsive {
           width: 100%;
@@ -715,20 +1130,23 @@ export default function EmailsPage() {
           text-align: left;
           font-size: 13px;
         }
-        .admin-table th {
-          background: rgba(255, 255, 255, 0.02);
-          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-          padding: 14px 16px;
+        .admin-table thead th {
+          position: sticky;
+          top: 0;
+          background: #0e1612;
+          z-index: 5;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+          padding: 14px 14px;
           font-size: 11px;
           font-family: 'DM Mono', monospace;
           text-transform: uppercase;
           letter-spacing: 0.5px;
-          color: rgba(226, 238, 230, 0.6);
+          color: rgba(226, 238, 230, 0.7);
           white-space: nowrap;
         }
         .admin-table td {
-          padding: 14px 16px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+          padding: 13px 14px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.05);
           white-space: nowrap;
         }
         .table-row-clickable {
@@ -736,7 +1154,10 @@ export default function EmailsPage() {
           transition: background 0.15s;
         }
         .table-row-clickable:hover {
-          background: rgba(192, 132, 252, 0.04);
+          background: rgba(192, 132, 252, 0.05);
+        }
+        .row-selected {
+          background: rgba(192, 132, 252, 0.08) !important;
         }
         .email-cell {
           font-weight: 600;
@@ -752,31 +1173,74 @@ export default function EmailsPage() {
           display: inline-block;
           font-family: 'DM Mono', monospace;
           font-size: 11.5px;
+          font-weight: 700;
           padding: 3px 8px;
           border-radius: 6px;
           background: rgba(255, 255, 255, 0.06);
-          border: 1px solid rgba(255, 255, 255, 0.1);
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          color: #ffffff;
         }
         .blocked-date-tag {
           font-family: 'DM Mono', monospace;
           color: #fca5a5;
-          font-size: 12px;
+          font-size: 11.5px;
+        }
+        .row-actions-group {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .btn-action-unblock {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          background: rgba(16, 185, 129, 0.15);
+          border: 1px solid rgba(16, 185, 129, 0.5);
+          color: #6ee7b7;
+          padding: 5px 10px;
+          border-radius: 6px;
+          font-size: 11.5px;
+          font-weight: 700;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .btn-action-unblock:hover {
+          background: #10b981;
+          color: #080d0b;
         }
         .btn-view-detail {
           background: rgba(192, 132, 252, 0.1);
-          border: 1px solid rgba(192, 132, 252, 0.3);
-          color: #c084fc;
+          border: 1px solid rgba(192, 132, 252, 0.35);
+          color: #d8b4fe;
           padding: 5px 10px;
           border-radius: 6px;
-          font-size: 12px;
+          font-size: 11.5px;
           font-weight: 600;
           cursor: pointer;
           display: inline-flex;
           align-items: center;
-          gap: 5px;
+          gap: 4px;
+          transition: all 0.2s;
         }
         .btn-view-detail:hover {
-          background: rgba(192, 132, 252, 0.2);
+          background: rgba(192, 132, 252, 0.25);
+          color: #ffffff;
+        }
+        .btn-action-delete {
+          background: rgba(239, 68, 68, 0.1);
+          border: 1px solid rgba(239, 68, 68, 0.3);
+          color: #fca5a5;
+          padding: 5px 8px;
+          border-radius: 6px;
+          font-size: 11.5px;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          transition: all 0.2s;
+        }
+        .btn-action-delete:hover {
+          background: #ef4444;
+          color: #ffffff;
         }
         .table-loading-cell, .table-empty-cell {
           text-align: center;
@@ -799,7 +1263,7 @@ export default function EmailsPage() {
           align-items: center;
           justify-content: space-between;
           padding: 14px 20px;
-          border-top: 1px solid rgba(255, 255, 255, 0.06);
+          border-top: 1px solid rgba(255, 255, 255, 0.08);
           font-size: 12.5px;
         }
         .pagination-info b {
@@ -818,7 +1282,7 @@ export default function EmailsPage() {
         }
         .page-size-label select {
           background: #080d0b;
-          border: 1px solid rgba(255, 255, 255, 0.1);
+          border: 1px solid rgba(255, 255, 255, 0.12);
           border-radius: 6px;
           color: #ffffff;
           padding: 3px 6px;
@@ -855,7 +1319,7 @@ export default function EmailsPage() {
         }
         .detail-modal-card {
           width: 100%;
-          max-width: 620px;
+          max-width: 640px;
           background: #0b120e;
           border-left: 1px solid rgba(192, 132, 252, 0.3);
           height: 100%;
@@ -865,12 +1329,54 @@ export default function EmailsPage() {
           box-shadow: -10px 0 40px rgba(0, 0, 0, 0.7);
         }
         .detail-modal-head {
-          padding: 24px 28px;
+          padding: 22px 28px;
           border-bottom: 1px solid rgba(255, 255, 255, 0.08);
           display: flex;
           align-items: center;
           justify-content: space-between;
           background: rgba(255, 255, 255, 0.02);
+          position: sticky;
+          top: 0;
+          z-index: 10;
+        }
+        .head-actions {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        .btn-drawer-unblock {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          background: rgba(16, 185, 129, 0.15);
+          border: 1px solid rgba(16, 185, 129, 0.5);
+          color: #6ee7b7;
+          padding: 6px 12px;
+          border-radius: 7px;
+          font-size: 12px;
+          font-weight: 700;
+          cursor: pointer;
+        }
+        .btn-drawer-unblock:hover {
+          background: #10b981;
+          color: #080d0b;
+        }
+        .btn-drawer-delete {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          background: rgba(239, 68, 68, 0.15);
+          border: 1px solid rgba(239, 68, 68, 0.4);
+          color: #fca5a5;
+          padding: 6px 12px;
+          border-radius: 7px;
+          font-size: 12px;
+          font-weight: 700;
+          cursor: pointer;
+        }
+        .btn-drawer-delete:hover {
+          background: #ef4444;
+          color: #ffffff;
         }
         .detail-eyebrow {
           font-size: 10px;
@@ -879,7 +1385,7 @@ export default function EmailsPage() {
           color: #c084fc;
         }
         .detail-modal-head h3 {
-          font-size: 18px;
+          font-size: 17px;
           font-weight: 700;
           color: #ffffff;
           margin: 4px 0 0 0;
@@ -917,20 +1423,28 @@ export default function EmailsPage() {
           font-size: 13.5px;
           color: #ffffff;
         }
-        .detail-section h4 {
-          font-size: 14px;
-          font-weight: 700;
+        .status-highlight {
           color: #c084fc;
-          margin: 0 0 12px 0;
+          text-transform: uppercase;
+        }
+        .detail-section h4 {
+          font-size: 13px;
+          font-family: 'DM Mono', monospace;
           text-transform: uppercase;
           letter-spacing: 0.5px;
+          color: rgba(226, 238, 230, 0.7);
+          margin: 0 0 12px 0;
         }
-        .history-period-card {
-          background: rgba(255, 255, 255, 0.025);
+        .periods-list {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+        .period-card {
+          background: rgba(255, 255, 255, 0.02);
           border: 1px solid rgba(255, 255, 255, 0.06);
           border-radius: 10px;
           padding: 14px;
-          margin-bottom: 10px;
         }
         .period-card-top {
           display: flex;
@@ -938,28 +1452,47 @@ export default function EmailsPage() {
           justify-content: space-between;
           margin-bottom: 10px;
         }
-        .status-tag {
-          font-size: 10px;
-          font-weight: 700;
+        .period-status {
           font-family: 'DM Mono', monospace;
-          padding: 2px 8px;
+          font-size: 11px;
+          padding: 2px 6px;
           border-radius: 4px;
+          text-transform: uppercase;
         }
-        .status-tag.status-active { background: rgba(52, 211, 153, 0.15); color: #34d399; }
-        .status-tag.status-blocked { background: rgba(239, 68, 68, 0.15); color: #f87171; }
-        .status-tag.status-expired { background: rgba(255, 255, 255, 0.08); color: rgba(226, 238, 230, 0.5); }
+        .period-status.status-active {
+          background: rgba(52, 211, 153, 0.15);
+          color: #34d399;
+        }
+        .period-status.status-blocked {
+          background: rgba(239, 68, 68, 0.15);
+          color: #f87171;
+        }
+        .period-status.status-expired {
+          background: rgba(156, 163, 175, 0.15);
+          color: #9ca3af;
+        }
+        .period-q-count {
+          font-family: 'DM Mono', monospace;
+          font-size: 12px;
+          color: rgba(226, 238, 230, 0.8);
+        }
+        .period-q-count b {
+          color: #ffffff;
+        }
         .period-grid {
           display: grid;
           grid-template-columns: 1fr 1fr;
-          gap: 8px;
+          gap: 8px 12px;
           font-size: 12px;
         }
         .period-grid span {
-          color: rgba(226, 238, 230, 0.5);
-          font-size: 10.5px;
+          display: block;
+          font-size: 10px;
+          color: rgba(226, 238, 230, 0.45);
         }
         .period-grid b {
-          color: #e2eee6;
+          color: #ffffff;
+          font-weight: 500;
         }
         .log-table-wrap {
           border: 1px solid rgba(255, 255, 255, 0.06);
@@ -974,7 +1507,7 @@ export default function EmailsPage() {
         .log-table th {
           background: rgba(255, 255, 255, 0.03);
           padding: 8px 12px;
-          font-family: 'DM Mono', monospace;
+          font-size: 10.5px;
           color: rgba(226, 238, 230, 0.5);
           text-align: left;
         }
@@ -983,18 +1516,23 @@ export default function EmailsPage() {
           border-top: 1px solid rgba(255, 255, 255, 0.04);
         }
         .log-badge-status {
-          background: rgba(120, 246, 168, 0.1);
-          color: #78f6a8;
+          background: rgba(192, 132, 252, 0.15);
+          color: #c084fc;
           padding: 2px 6px;
           border-radius: 4px;
-          font-size: 10px;
+          font-size: 10.5px;
+          font-family: 'DM Mono', monospace;
+        }
+        .feedback-cards-list {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
         }
         .feedback-mini-card {
-          background: rgba(255, 255, 255, 0.03);
+          background: rgba(255, 255, 255, 0.02);
           border: 1px solid rgba(255, 255, 255, 0.06);
-          border-radius: 10px;
-          padding: 12px 14px;
-          margin-bottom: 8px;
+          border-radius: 8px;
+          padding: 12px;
         }
         .fb-mini-top {
           display: flex;
@@ -1004,11 +1542,10 @@ export default function EmailsPage() {
         }
         .fb-stars {
           display: flex;
-          align-items: center;
           gap: 2px;
         }
         .fb-cat-tag {
-          font-size: 11px;
+          font-size: 10.5px;
           font-family: 'DM Mono', monospace;
           color: #c084fc;
           background: rgba(192, 132, 252, 0.1);
@@ -1017,7 +1554,7 @@ export default function EmailsPage() {
         }
         .fb-date {
           font-size: 11px;
-          color: rgba(226, 238, 230, 0.4);
+          color: rgba(226, 238, 230, 0.45);
           margin-left: auto;
         }
         .fb-mini-msg {
@@ -1027,9 +1564,14 @@ export default function EmailsPage() {
           line-height: 1.4;
         }
         .section-empty {
-          font-size: 12px;
           color: rgba(226, 238, 230, 0.4);
-          font-style: italic;
+          font-size: 12.5px;
+          margin: 0;
+        }
+        .detail-loading {
+          padding: 48px;
+          text-align: center;
+          color: rgba(226, 238, 230, 0.5);
         }
       `}</style>
     </AdminLayout>
@@ -1039,21 +1581,32 @@ export default function EmailsPage() {
 function StatusBadge({ status, blocked }) {
   if (blocked || status === "blocked") {
     return (
-      <span className="badge-status badge-blocked">
-        <ShieldAlert size={12} /> Blocked
+      <span className="status-badge status-blocked">
+        <ShieldAlert size={12} />
+        <span>Blocked</span>
       </span>
     );
   }
-  if (status === "eligible" || status === "active") {
+  if (status === "expired") {
     return (
-      <span className="badge-status badge-active">
-        <CheckCircle2 size={12} /> Eligible
+      <span className="status-badge status-expired">
+        <Clock size={12} />
+        <span>Expired</span>
+      </span>
+    );
+  }
+  if (status === "active") {
+    return (
+      <span className="status-badge status-active">
+        <CheckCircle2 size={12} />
+        <span>Active</span>
       </span>
     );
   }
   return (
-    <span className="badge-status badge-expired">
-      <Clock size={12} /> Expired
+    <span className="status-badge status-eligible">
+      <CheckCircle2 size={12} />
+      <span>Eligible</span>
     </span>
   );
 }
@@ -1061,9 +1614,9 @@ function StatusBadge({ status, blocked }) {
 function DevicePill({ device }) {
   const d = (device || "unknown").toLowerCase();
   let Icon = HelpCircle;
-  if (d === "desktop") Icon = Monitor;
-  else if (d === "mobile") Icon = Smartphone;
-  else if (d === "tablet") Icon = Tablet;
+  if (d.includes("desk")) Icon = Monitor;
+  else if (d.includes("mob")) Icon = Smartphone;
+  else if (d.includes("tab")) Icon = Tablet;
 
   return (
     <span className="device-pill">
@@ -1072,4 +1625,3 @@ function DevicePill({ device }) {
     </span>
   );
 }
-
