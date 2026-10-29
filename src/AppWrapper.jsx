@@ -110,6 +110,21 @@ export default function AppWrapper() {
     }
   }, [initSession]);
 
+  const isBlocked = accessData.blocked || accessData.remainingQuestions <= 0;
+  const isModalActive = Boolean(showEmailGateModal || (isBlocked && showLimitModal) || showFeedbackModal);
+
+  // Stop any active text-to-speech or microphone input whenever any modal opens
+  useEffect(() => {
+    if (isModalActive) {
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        try {
+          window.speechSynthesis.cancel();
+        } catch {}
+      }
+      appRef.current?.stopVoiceAndMic?.();
+    }
+  }, [isModalActive]);
+
   const handleAccessGranted = (verifiedData) => {
     setShowEmailGateModal(false);
     setAccessData({
@@ -208,21 +223,6 @@ export default function AppWrapper() {
       </div>
     );
   }
-
-  const isBlocked = accessData.blocked || accessData.remainingQuestions <= 0;
-  const isModalActive = Boolean(showEmailGateModal || (isBlocked && showLimitModal) || showFeedbackModal);
-
-  // Stop any active text-to-speech or microphone input whenever any modal opens
-  useEffect(() => {
-    if (isModalActive) {
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        try {
-          window.speechSynthesis.cancel();
-        } catch {}
-      }
-      appRef.current?.stopVoiceAndMic?.();
-    }
-  }, [isModalActive]);
 
   return (
     <>
