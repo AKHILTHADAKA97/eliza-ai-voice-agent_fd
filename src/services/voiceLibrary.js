@@ -376,3 +376,4 @@ function fallbackToBrowserSpeech(text, settings, profile, callbacks = {}) {
     playUtterance();
   }
 }
+

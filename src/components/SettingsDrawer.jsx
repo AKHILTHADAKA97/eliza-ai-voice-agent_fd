@@ -14,6 +14,7 @@ import {
   Globe,
   Mic,
   Check,
+  Shuffle,
 } from "lucide-react";
 import {
   VOICE_PROFILES,
@@ -22,32 +23,12 @@ import {
   speakAssistantResponse,
   stopAllSpeech,
 } from "../services/voiceLibrary.js";
-
-const SOLID_THEMES = [
-  { id: "green", name: "Green", color: "#78f6a8" },
-  { id: "amber", name: "Amber", color: "#ffc16b" },
-  { id: "cyan", name: "Cyan", color: "#7cecff" },
-  { id: "violet", name: "Violet", color: "#c084fc" },
-  { id: "crimson", name: "Crimson", color: "#ff6b6b" },
-  { id: "solar", name: "Solar", color: "#fde047" },
-  { id: "emerald", name: "Emerald", color: "#34d399" },
-  { id: "pink", name: "Pink", color: "#f472b6" },
-  { id: "cobalt", name: "Cobalt", color: "#60a5fa" },
-  { id: "orange", name: "Orange", color: "#fb923c" },
-  { id: "mint", name: "Mint", color: "#6ee7b7" },
-  { id: "rose", name: "Rose", color: "#fb7185" },
-  { id: "ice", name: "Ice", color: "#a5f3fc" },
-  { id: "lime", name: "Lime", color: "#a3e635" },
-  { id: "teal", name: "Teal", color: "#2dd4bf" },
-];
-
-const GRADIENT_THEMES = [
-  { id: "aurora", name: "Aurora", grad: "linear-gradient(135deg, #34d399, #7cecff, #c084fc)" },
-  { id: "cyberpunk", name: "Cyberpunk", grad: "linear-gradient(135deg, #f472b6, #fb923c, #fde047)" },
-  { id: "nebula", name: "Nebula", grad: "linear-gradient(135deg, #c084fc, #818cf8, #60a5fa)" },
-  { id: "sunset", name: "Sunset", grad: "linear-gradient(135deg, #ff6b6b, #fb923c, #fde047)" },
-  { id: "toxic", name: "Toxic", grad: "linear-gradient(135deg, #a3e635, #2dd4bf, #7cecff)" },
-];
+import {
+  SOLID_THEMES,
+  GRADIENT_THEMES,
+  ALL_THEMES,
+  saveUserSelectedTheme,
+} from "../services/themeLibrary.js";
 
 export default function SettingsDrawer({ open, onClose, providers, settings, onChange }) {
   const configured = providers.filter((p) => p.available);
@@ -107,6 +88,16 @@ export default function SettingsDrawer({ open, onClose, providers, settings, onC
       default_provider: newProvider,
       default_model: targetProv?.default_model || "",
     });
+  };
+
+  const handleThemeSelect = (themeId) => {
+    saveUserSelectedTheme(themeId);
+    onChange({ theme: themeId });
+  };
+
+  const handleRandomizeTheme = () => {
+    const randomTheme = ALL_THEMES[Math.floor(Math.random() * ALL_THEMES.length)];
+    handleThemeSelect(randomTheme.id);
   };
 
   const activeProviderName =
@@ -432,44 +423,62 @@ export default function SettingsDrawer({ open, onClose, providers, settings, onC
           </p>
         </section>
 
-        {/* APPEARANCE (15 SOLIDS + 5 GRADIENTS) */}
+        {/* APPEARANCE (15 SOLIDS + 36 GRADIENTS) */}
         <section className="settings-section">
-          <div className="section-heading">
-            <Palette size={16} />
-            <h3>Appearance & Themes</h3>
+          <div className="section-heading" style={{ justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "9px" }}>
+              <Palette size={16} />
+              <h3>Appearance & Themes</h3>
+            </div>
+            <button
+              type="button"
+              className="text-action"
+              onClick={handleRandomizeTheme}
+              style={{ fontSize: "10px", padding: "3px 7px" }}
+              title="Pick a random theme"
+            >
+              <Shuffle size={11} /> Random Theme
+            </button>
           </div>
 
-          <div className="theme-category-label">15 Solid Colors</div>
-          <div className="theme-swatches-grid">
-            {SOLID_THEMES.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                className={`theme-swatch ${settings.theme === t.id ? "active" : ""}`}
-                onClick={() => onChange({ theme: t.id })}
-                title={t.name}
-              >
-                <span className="swatch-color-pill" style={{ backgroundColor: t.color }} />
-                <span className="swatch-name">{t.name}</span>
-              </button>
-            ))}
+          <div className="theme-category-label">
+            36 Gradient Mixed Themes (Dynamic Atmospheric Glow)
           </div>
-
-          <div className="theme-category-label">5 Gradient Mixed Themes</div>
-          <div className="theme-swatches-grid" style={{ gridTemplateColumns: "repeat(5, 1fr)" }}>
+          <div className="theme-swatches-grid" style={{ gridTemplateColumns: "repeat(4, 1fr)", maxHeight: "240px", overflowY: "auto", paddingRight: "4px" }}>
             {GRADIENT_THEMES.map((t) => (
               <button
                 key={t.id}
                 type="button"
                 className={`theme-swatch ${settings.theme === t.id ? "active" : ""}`}
-                onClick={() => onChange({ theme: t.id })}
-                title={t.name}
+                onClick={() => handleThemeSelect(t.id)}
+                title={`${t.name}: ${t.desc}`}
               >
                 <span className="swatch-color-pill" style={{ background: t.grad }} />
                 <span className="swatch-name">{t.name}</span>
               </button>
             ))}
           </div>
+
+          <div className="theme-category-label" style={{ marginTop: "14px" }}>
+            15 Solid Minimalist Colors
+          </div>
+          <div className="theme-swatches-grid" style={{ gridTemplateColumns: "repeat(5, 1fr)" }}>
+            {SOLID_THEMES.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className={`theme-swatch ${settings.theme === t.id ? "active" : ""}`}
+                onClick={() => handleThemeSelect(t.id)}
+                title={`${t.name}: ${t.desc}`}
+              >
+                <span className="swatch-color-pill" style={{ backgroundColor: t.color }} />
+                <span className="swatch-name">{t.name}</span>
+              </button>
+            ))}
+          </div>
+          <p className="field-help">
+            Every new visitor is assigned a unique random theme color. When you pick your favorite theme, it stays locked until you choose to change it again.
+          </p>
         </section>
 
         {/* DEVELOPER CREDIT CARD */}
@@ -486,7 +495,7 @@ export default function SettingsDrawer({ open, onClose, providers, settings, onC
 
         <footer className="drawer-footer">
           <SlidersHorizontal size={14} />
-          <span>Settings save automatically for this running session.</span>
+          <span>Settings save automatically for your session.</span>
         </footer>
       </aside>
     </div>

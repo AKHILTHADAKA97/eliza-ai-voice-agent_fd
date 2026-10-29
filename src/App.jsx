@@ -13,6 +13,10 @@ import {
   speakAssistantResponse,
   stopAllSpeech,
 } from "./services/voiceLibrary.js";
+import {
+  resolveInitialTheme,
+  saveUserSelectedTheme,
+} from "./services/themeLibrary.js";
 
 const initialSettings = {
   default_provider: "auto",
@@ -28,7 +32,7 @@ const initialSettings = {
   response_style: "balanced",
   custom_system_prompt: "",
   detailed_responses: false,
-  theme: "green",
+  theme: resolveInitialTheme(),
 };
 
 const RESPONSE_PROMPTS = {
@@ -201,7 +205,20 @@ const App = forwardRef(function App(
       ]);
       setApiOnline(health.status === "ok");
       setProviders(providerData.providers || []);
-      setSettings((s) => ({ ...s, ...savedSettings }));
+      setSettings((s) => {
+        let activeTheme = s.theme;
+        try {
+          const userSelected = localStorage.getItem("eliza_user_selected_theme");
+          if (userSelected) {
+            activeTheme = userSelected;
+          } else if (s.theme) {
+            activeTheme = s.theme;
+          } else if (savedSettings.theme) {
+            activeTheme = savedSettings.theme;
+          }
+        } catch {}
+        return { ...s, ...savedSettings, theme: activeTheme };
+      });
       setConversations(savedConversations.conversations || []);
       setError("");
     } catch {
@@ -517,6 +534,9 @@ const App = forwardRef(function App(
   };
 
   const changeSettings = async (patch) => {
+    if (patch.theme) {
+      saveUserSelectedTheme(patch.theme);
+    }
     const next = { ...settings, ...patch };
     setSettings(next);
     try {
