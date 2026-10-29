@@ -1,4 +1,6 @@
+dist/
 node_modules/
 .env.local
+.env
 test-results/
 playwright-e2e.test.cjs
