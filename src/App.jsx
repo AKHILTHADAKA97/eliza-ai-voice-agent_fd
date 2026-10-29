@@ -174,6 +174,7 @@ const App = forwardRef(function App(
     onQuestionUsed,
     onRequestEmailGate,
     onOpenFeedback,
+    isModalActive = false,
   },
   ref
 ) {
@@ -199,8 +200,12 @@ const App = forwardRef(function App(
   const abortRef = useRef(null);
 
   useImperativeHandle(ref, () => ({
-    sendPendingMessage: (text) => {
-      sendMessage(text);
+    sendPendingMessage: () => {
+      // Do not auto-send: user asks question fresh after login
+    },
+    stopVoiceAndMic: () => {
+      stopSpeech();
+      stopListening();
     },
   }));
 
@@ -353,6 +358,21 @@ const App = forwardRef(function App(
     setStatus("idle");
   }, []);
 
+  // Stop voice speech and microphone whenever any modal is active
+  useEffect(() => {
+    if (isModalActive) {
+      stopSpeech();
+      stopListening();
+    }
+  }, [isModalActive, stopSpeech, stopListening]);
+
+  // Also stop voice speech if settings or accessibility drawer opens
+  useEffect(() => {
+    if (settingsOpen || historyOpen || accessibilityOpen) {
+      stopSpeech();
+    }
+  }, [settingsOpen, historyOpen, accessibilityOpen, stopSpeech]);
+
   const handleInputChange = (e) => {
     const val = e.target.value;
     if (autoGrammar) {
@@ -383,8 +403,11 @@ const App = forwardRef(function App(
     setInput("");
     const token = getStoredToken();
     if (!token && freeQuestionsCount >= 1) {
+      // User is attempting question 2 without authentication: stop all speech and prompt login
+      stopSpeech();
+      stopListening();
       if (onRequestEmailGate) {
-        onRequestEmailGate(text);
+        onRequestEmailGate();
         return;
       }
     }
@@ -442,15 +465,25 @@ const App = forwardRef(function App(
       setConversationId(resp.conversation_id);
       setStatus("idle");
 
-      if (settings.auto_speak && !muted) {
+      const isQuotaExhausted =
+        (resp.remainingQuestions !== undefined && (resp.remainingQuestions <= 0 || resp.blocked)) ||
+        accessData?.blocked ||
+        (accessData?.remainingQuestions !== undefined && accessData.remainingQuestions <= 0);
+
+      // Only speak if no modal is active and quota is not exhausted
+      if (settings.auto_speak && !muted && !isModalActive && !isQuotaExhausted) {
         speak(
           resp.answer,
           settings,
           () => setStatus("speaking"),
           () => setStatus("idle")
         );
+      } else {
+        stopSpeech();
       }
     } catch (err) {
+      stopSpeech();
+      stopListening();
       if (err.data && (err.data.blocked || err.status === 403 || err.message?.includes("limit"))) {
         const blockUntil = err.data?.detail?.blockedUntil || err.data?.blockedUntil;
         if (onQuestionUsed) onQuestionUsed(0, true, blockUntil);

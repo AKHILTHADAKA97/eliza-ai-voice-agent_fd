@@ -1,6 +1,14 @@
+import { useEffect } from "react";
 import { Clock, MessageSquarePlus, Lock, Briefcase, Phone } from "lucide-react";
 
 export default function LimitExceeded({ blockedUntil, onGiveFeedback }) {
+  useEffect(() => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
+    }
+  }, []);
   const formatBlockDate = (isoStr) => {
     if (!isoStr) return "20 days from period start";
     try {

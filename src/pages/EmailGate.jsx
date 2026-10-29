@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Activity, ShieldCheck, AlertCircle, Clock, Sparkles, Phone, Briefcase, X } from "lucide-react";
 import { accessApi } from "../services/accessApi.js";
 import { signInWithGoogle } from "../services/firebase.js";
@@ -12,21 +12,28 @@ const GoogleIcon = () => (
   </svg>
 );
 
-export default function EmailGate({ onAccessGranted, onShowFeedback, isModal = false, pendingQuestion = "", onClose }) {
+export default function EmailGate({ onAccessGranted, onShowFeedback, isModal = false, onClose }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [blockedInfo, setBlockedInfo] = useState(null);
+
+  // Stop voice speech immediately when modal is opened
+  useEffect(() => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
+    }
+  }, []);
 
   // Direct Firebase Google Sign-In
   const handleGoogleSignIn = async () => {
     setError("");
 
-    // Preserve any pending question queued by the user
-    if (pendingQuestion) {
-      try {
-        sessionStorage.setItem("eliza_pending_q", pendingQuestion);
-      } catch {}
-    }
+    // Clear any previous pending question: user will ask their question fresh after login
+    try {
+      sessionStorage.removeItem("eliza_pending_q");
+    } catch {}
 
     setLoading(true);
     try {
@@ -46,7 +53,7 @@ export default function EmailGate({ onAccessGranted, onShowFeedback, isModal = f
         setBlockedInfo(result);
         if (onAccessGranted) onAccessGranted(result);
       } else if (result.allowed) {
-        if (onAccessGranted) onAccessGranted(result, pendingQuestion);
+        if (onAccessGranted) onAccessGranted(result);
       } else {
         setError(result.message || "Access not available at this time.");
       }

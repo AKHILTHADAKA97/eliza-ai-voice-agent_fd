@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Star, CheckCircle2, AlertCircle, Send, X, ArrowLeft, Phone, Briefcase } from "lucide-react";
 import { accessApi } from "../services/accessApi.js";
 
@@ -19,6 +19,14 @@ export default function FeedbackForm({ email, onClose, onSubmitted }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
+    }
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();

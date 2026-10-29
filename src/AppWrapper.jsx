@@ -110,7 +110,7 @@ export default function AppWrapper() {
     }
   }, [initSession]);
 
-  const handleAccessGranted = (verifiedData, pendingText) => {
+  const handleAccessGranted = (verifiedData) => {
     setShowEmailGateModal(false);
     setAccessData({
       ...verifiedData,
@@ -122,17 +122,25 @@ export default function AppWrapper() {
       return;
     }
 
-    // If there was a question queued when email was prompted, trigger submission
-    if (pendingText && appRef.current?.sendPendingMessage) {
-      setTimeout(() => {
-        appRef.current.sendPendingMessage(pendingText);
-      }, 100);
-      setPendingQuestionText("");
-    }
+    // Do NOT auto-send question: user asks their question fresh after login
+    setPendingQuestionText("");
+    try {
+      sessionStorage.removeItem("eliza_pending_q");
+    } catch {}
   };
 
   const handleQuestionUsed = (remaining, blocked, blockedUntil) => {
     const isNowBlocked = blocked || remaining <= 0;
+
+    // Immediately stop speech when quota is exhausted
+    if (isNowBlocked) {
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        try {
+          window.speechSynthesis.cancel();
+        } catch {}
+      }
+      appRef.current?.stopVoiceAndMic?.();
+    }
 
     setAccessData((prev) => ({
       ...prev,
@@ -158,8 +166,15 @@ export default function AppWrapper() {
     }
   };
 
-  const handleRequestEmailGate = (text) => {
-    setPendingQuestionText(text);
+  const handleRequestEmailGate = () => {
+    // Stop voice and speech immediately when gate modal opens
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
+    }
+    appRef.current?.stopVoiceAndMic?.();
+    setPendingQuestionText("");
     setShowEmailGateModal(true);
   };
 
@@ -195,6 +210,19 @@ export default function AppWrapper() {
   }
 
   const isBlocked = accessData.blocked || accessData.remainingQuestions <= 0;
+  const isModalActive = Boolean(showEmailGateModal || (isBlocked && showLimitModal) || showFeedbackModal);
+
+  // Stop any active text-to-speech or microphone input whenever any modal opens
+  useEffect(() => {
+    if (isModalActive) {
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        try {
+          window.speechSynthesis.cancel();
+        } catch {}
+      }
+      appRef.current?.stopVoiceAndMic?.();
+    }
+  }, [isModalActive]);
 
   return (
     <>
@@ -206,13 +234,13 @@ export default function AppWrapper() {
         onQuestionUsed={handleQuestionUsed}
         onRequestEmailGate={handleRequestEmailGate}
         onOpenFeedback={() => setShowFeedbackModal(true)}
+        isModalActive={isModalActive}
       />
 
       {/* 2nd Question Trigger: Modal asks for email to continue trial */}
       {showEmailGateModal && (
         <EmailGate
           isModal={true}
-          pendingQuestion={pendingQuestionText}
           onAccessGranted={handleAccessGranted}
           onShowFeedback={(info) => {
             setShowEmailGateModal(false);
