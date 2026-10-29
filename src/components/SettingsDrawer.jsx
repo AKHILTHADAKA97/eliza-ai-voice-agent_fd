@@ -53,6 +53,8 @@ export default function SettingsDrawer({ open, onClose, providers, settings, onC
       calm: [0.88, 0.92],
       narrator: [0.92, 0.96],
       professional: [0.98, 1],
+      female: [0.95, 1.12],
+      male: [0.95, 0.88],
     };
     const [rate, pitch] = profileMap[settings.voice_profile || "natural"] || profileMap.natural;
     const utterance = new SpeechSynthesisUtterance("Hello! I am ELIZA AI, your voice assistant. Ready whenever you are.");
@@ -185,6 +187,8 @@ export default function SettingsDrawer({ open, onClose, providers, settings, onC
             onChange={(e) => onChange({ voice_profile: e.target.value })}
           >
             <option value="natural">Natural · balanced everyday voice</option>
+            <option value="female">Female · clear feminine voice</option>
+            <option value="male">Male · clear masculine voice</option>
             <option value="warm">Warm · friendly and welcoming</option>
             <option value="energetic">Energetic · lively and upbeat</option>
             <option value="calm">Calm · slower and soothing</option>

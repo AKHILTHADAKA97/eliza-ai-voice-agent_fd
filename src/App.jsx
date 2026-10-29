@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Activity, AudioLines, Check, ChevronDown, Copy, History, Menu, Mic, MicOff, Plus, Send, Settings2, Sparkles, Square, Volume2, VolumeX, X } from "lucide-react";
+import { Activity, AudioLines, Check, ChevronDown, Copy, History, Menu, Mic, MicOff, Plus, Send, Settings2, Sparkles, Square, UserCheck, Volume2, VolumeX, X } from "lucide-react";
 import { api } from "./services/api.js";
 import Orb from "./components/Orb.jsx";
 import SettingsDrawer from "./components/SettingsDrawer.jsx";
@@ -20,13 +20,15 @@ const initialSettings = {
 };
 
 const VOICE_PROFILES = {
-  natural: { rate: 1, pitch: 1, keywords: ["natural", "google", "microsoft", "aria", "samantha"] },
-  warm: { rate: 0.94, pitch: 1.06, keywords: ["warm", "jenny", "samantha", "aria", "female"] },
-  energetic: { rate: 1.08, pitch: 1.08, keywords: ["energetic", "guy", "ava", "emma"] },
-  calm: { rate: 0.88, pitch: 0.92, keywords: ["calm", "soft", "serena", "david"] },
-  narrator: { rate: 0.92, pitch: 0.96, keywords: ["narrator", "daniel", "george", "alex"] },
-  professional: { rate: 0.98, pitch: 1, keywords: ["professional", "aria", "jenny", "david", "google"] },
-};
+    natural: { rate: 1, pitch: 1, keywords: ["natural", "google", "microsoft", "aria", "samantha"] },
+    warm: { rate: 0.94, pitch: 1.06, keywords: ["warm", "jenny", "samantha", "aria", "female"] },
+    energetic: { rate: 1.08, pitch: 1.08, keywords: ["energetic", "guy", "ava", "emma"] },
+    calm: { rate: 0.88, pitch: 0.92, keywords: ["calm", "soft", "serena", "david"] },
+    narrator: { rate: 0.92, pitch: 0.96, keywords: ["narrator", "daniel", "george", "alex"] },
+    professional: { rate: 0.98, pitch: 1, keywords: ["professional", "aria", "jenny", "david", "google"] },
+    female: { rate: 0.95, pitch: 1.12, keywords: ["female", "woman", "samantha", "aria", "jenny", "victoria", "zira", "hazel", "kate", "catherine"] },
+    male: { rate: 0.95, pitch: 0.88, keywords: ["male", "man", "david", "daniel", "george", "fred", "brian", "thomas", "mike"] },
+  };
 
 const RESPONSE_PROMPTS = {
   balanced: "Deliver a clear, well-structured, insightful response. Lead with the direct answer or main takeaway, follow with step-by-step reasoning or context, and conclude with practical next steps. Use headings, lists, or tables where they improve readability.",
@@ -40,6 +42,30 @@ const RESPONSE_PROMPTS = {
 function cleanContent(text) {
   if (!text) return "";
   return text.replace(/<\/?(?:user_input|user_message|assistant|system)[^>]*>/gi, "").trim();
+}
+/**
+ * Strips emojis, pictographic symbols, flags, skin tone modifiers,
+ * zero-width joiners, and emoji variation selectors from text.
+ * Preserves all normal words, punctuation, numbers, and sentence structure.
+ */
+export function stripEmojis(text) {
+  if (!text) return "";
+  return text
+    // Remove flag sequences (pairs of regional indicators)
+    .replace(/\p{Regional_Indicator}{2}/gu, "")
+    // Remove tag sequences (e.g. subdivision flags \u{1F3F4} ... \u{E007F})
+    .replace(/[\u{1F3F4}][\u{E0020}-\u{E007E}]+\u{E007F}/gu, "")
+    // Remove keycap combining marks (#️⃣, *️⃣, 0️⃣-9️⃣)
+    .replace(/[\uFE0E\uFE0F]?\u20E3/gu, "")
+    // Remove pictographic / emoji sequences (including ZWJ joiners, skin tones, variation selectors)
+    .replace(/(?:\p{Extended_Pictographic}|\p{Emoji_Presentation}|\p{Emoji_Modifier_Base})(?:[\uFE0E\uFE0F]|\p{Emoji_Modifier})*(?:\u200D(?:\p{Extended_Pictographic}|\p{Emoji_Presentation}|\p{Emoji_Modifier_Base}|\p{Emoji_Component})(?:[\uFE0E\uFE0F]|\p{Emoji_Modifier})*)*/gu, "")
+    // Remove standalone emoji modifiers, variation selectors, zero-width joiners / non-joiners
+    .replace(/[\p{Emoji_Modifier}\uFE0E\uFE0F\u200D\u200C]/gu, "")
+    // Clean up spaces left before punctuation marks
+    .replace(/\s+([.,!?;:])/g, "$1")
+    // Collapse multiple whitespace characters into a single space
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function prepareSpeechText(text) {
@@ -63,6 +89,8 @@ function prepareSpeechText(text) {
   clean = clean.replace(/^[ \t]*[-*_]{3,}[ \t]*$/gm, "");
   // Remove table pipes
   clean = clean.replace(/\|/g, " ");
+  // Sanitize text to remove emojis and pictographic symbols
+  clean = stripEmojis(clean);
   // Clean extra whitespace
   clean = clean.replace(/\s+/g, " ").trim();
   return clean;
@@ -104,7 +132,7 @@ function speak(text, settings, onStart, onEnd) {
   if (!("speechSynthesis" in window)) return false;
   window.speechSynthesis.cancel();
   const spokenText = prepareSpeechText(text);
-  if (!spokenText) return false;
+  if (!spokenText || !spokenText.trim()) return false;
   const utterance = new SpeechSynthesisUtterance(spokenText);
   const profile = VOICE_PROFILES[settings.voice_profile] || VOICE_PROFILES.natural;
   utterance.rate = Math.max(0.5, Math.min(2, Number(settings.speech_rate || 1) * profile.rate));
@@ -137,6 +165,8 @@ export default function App() {
   const [muted, setMuted] = useState(false);
   const [autoGrammar, setAutoGrammar] = useState(true);
   const [grammarFixedNotice, setGrammarFixedNotice] = useState(false);
+  const [accessibilityOpen, setAccessibilityOpen] = useState(false);
+  const [showNavbar, setShowNavbar] = useState(true);
   const transcriptRef = useRef(null);
   const recognitionRef = useRef(null);
   const abortRef = useRef(null);
@@ -392,19 +422,7 @@ export default function App() {
           <span className="status-divider" />
           {providerLabel}
         </div>
-        <div className="top-actions">
-          <button className="top-action" onClick={newConversation} title="New conversation">
-            <Plus size={16} />
-            <span>New</span>
-          </button>
-          <button
-            className={`icon-button ${historyOpen ? "selected" : ""}`}
-            onClick={() => setHistoryOpen((v) => !v)}
-            aria-label="Conversation history"
-            title="History"
-          >
-            <History size={17} />
-          </button>
+        {/* <div className="top-actions">
           <button
             className={`icon-button ${muted ? "selected" : ""}`}
             onClick={() => {
@@ -416,16 +434,128 @@ export default function App() {
           >
             {muted ? <VolumeX size={17} /> : <Volume2 size={17} />}
           </button>
+          <button className="icon-button" onClick={() => setAccessibilityOpen(true)} aria-label="Accessibility" title="Accessibility">
+            <UserCheck size={17} />
+          </button>
           <button
             className="icon-button"
-            onClick={() => setSettingsOpen(true)}
-            aria-label="Settings"
-            title="Settings"
+            onClick={() => setShowNavbar((v) => !v)}
+            aria-label={showNavbar ? "Hide navbar" : "Show navbar"}
+            title={showNavbar ? "Hide navbar" : "Show navbar"}
           >
-            <Settings2 size={17} />
+            {showNavbar ? <Menu size={17} /> : <Menu size={17} />}
           </button>
-        </div>
+        </div> */}
+        <div className="top-actions">
+  {/* New Conversation */}
+  {/* <button
+    className="icon-button"
+    onClick={newConversation}
+    title="New conversation"
+    aria-label="New conversation"
+  >
+    <Plus size={17} /> 
+  </button> */}
+  <button
+  className="icon-button"
+  onClick={newConversation}
+  title="New conversation"
+  aria-label="New conversation"
+  style={{
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "5px",
+    width: "auto",
+    padding: "8px 8px",
+    fontSize: "12px",
+    whiteSpace: "nowrap",
+  }}
+>
+  <Plus size={16} />
+  <span>New Chat</span>
+</button>
+
+  {/* History */}
+  <button
+    className={`icon-button ${historyOpen ? "selected" : ""}`}
+    onClick={() => setHistoryOpen((v) => !v)}
+    title="History"
+    aria-label="History"
+  >
+    <History size={17} />
+  </button>
+
+  {/* Stop Speech */}
+  {/* <button
+    className="icon-button"
+    onClick={stopSpeech}
+    title="Stop speech"
+    aria-label="Stop speech"
+  >
+    <Square size={17} />
+  </button> */}
+
+  {/* Voice Input */}
+  <button
+    className="icon-button"
+    onClick={startListening}
+    title="Speak question"
+    aria-label="Speak question"
+  >
+    <Mic size={17} />
+  </button>
+
+  {/* Export Chat */}
+  {/* <button
+    className="icon-button"
+    onClick={exportChat}
+    disabled={!messages.length}
+    title="Export chat"
+    aria-label="Export chat"
+  >
+    <ChevronDown size={17} />
+  </button> */}
+
+
+
+  {/* Mute / Enable Voice */}
+  <button
+    className={`icon-button ${muted ? "selected" : ""}`}
+    onClick={() => {
+      setMuted((v) => !v);
+
+      if (!muted) {
+        stopSpeech();
+      }
+    }}
+    aria-label={muted ? "Enable voice" : "Mute voice"}
+    title={muted ? "Enable voice" : "Mute voice"}
+  >
+    {muted ? <VolumeX size={17} /> : <Volume2 size={17} />}
+  </button>
+
+  {/* Accessibility */}
+  {/* <button
+    className="icon-button"
+    onClick={() => setAccessibilityOpen(true)}
+    aria-label="Accessibility"
+    title="Accessibility"
+  >
+    <UserCheck size={17} />
+  </button> */}
+
+  {/* Settings */}
+  <button
+    className="icon-button"
+    onClick={() => setSettingsOpen(true)}
+    title="Settings"
+    aria-label="Settings"
+  >
+    <Settings2 size={17} />
+  </button>
+</div>
       </header>
+
 
       {historyOpen && (
         <aside className="history-panel">
@@ -690,6 +820,64 @@ export default function App() {
         <span>BUILT FOR CURIOUS MINDS</span>
         <span>DEVELOPED BY AKHIL THADAKA</span>
       </footer>
+
+      {accessibilityOpen && (
+        <div className="accessibility-panel" role="dialog" aria-label="Accessibility">
+          <div className="accessibility-head">
+            <div>
+              <div className="eyebrow">ACCESSIBILITY</div>
+              <h3>Voice &amp; Interaction</h3>
+            </div>
+            <button className="icon-button" onClick={() => setAccessibilityOpen(false)} aria-label="Close">
+              <X size={16} />
+            </button>
+          </div>
+          <label className="toggle-row">
+            <span>
+              <b>Auto-grammar correction</b>
+              <small>Fix spelling and grammar as you type</small>
+            </span>
+            <input
+              type="checkbox"
+              checked={autoGrammar}
+              onChange={(e) => setAutoGrammar(e.target.checked)}
+            />
+          </label>
+          <label className="toggle-row">
+            <span>
+              <b>Show navigation bar</b>
+              <small>Toggle the quick-action navbar</small>
+            </span>
+            <input
+              type="checkbox"
+              checked={showNavbar}
+              onChange={(e) => setShowNavbar(e.target.checked)}
+            />
+          </label>
+          <label className="toggle-row">
+            <span>
+              <b>Mute voice output</b>
+              <small>Disable text-to-speech</small>
+            </span>
+            <input
+              type="checkbox"
+              checked={muted}
+              onChange={(e) => {
+                setMuted(e.target.checked);
+                if (!e.target.checked) stopSpeech();
+              }}
+            />
+          </label>
+          <div className="accessibility-actions">
+            <button className="text-action" type="button" onClick={startListening}>
+              <Mic size={14} /> Test microphone
+            </button>
+            <button className="text-action" type="button" onClick={() => speak("Hello, I am ELIZA AI.", settings, () => setStatus("speaking"), () => setStatus("idle"))}>
+              <Volume2 size={14} /> Test voice
+            </button>
+          </div>
+        </div>
+      )}
 
       <SettingsDrawer
         open={settingsOpen}

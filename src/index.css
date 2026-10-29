@@ -1027,9 +1027,94 @@ button:disabled {
   font-size: 6.5px;
 }
 .app-footer b {
-  font-weight: 400;
-  color: var(--accent);
-}
+    font-weight: 400;
+    color: var(--accent);
+  }
+
+  /* Navbar with icons */
+  .app-navbar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px 4%;
+    border-bottom: 1px solid #1b2c21;
+    background: rgba(8, 13, 11, 0.7);
+    backdrop-filter: blur(6px);
+    flex-shrink: 0;
+    z-index: 9;
+  }
+  .nav-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    border: 1px solid #22382a;
+    border-radius: 7px;
+    background: #0d1912;
+    color: #a3b5a9;
+    font-size: 10px;
+    font-family: 'DM Mono', monospace;
+    letter-spacing: 0.04em;
+    transition: all 0.18s ease;
+  }
+  .nav-item:hover {
+    color: var(--accent);
+    border-color: var(--accent-dim);
+    background: rgba(var(--accent-rgb), 0.06);
+  }
+  .nav-item:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  /* Hide icon labels when speaking */
+  .app-navbar.speaking .nav-item span {
+    display: none;
+  }
+  .app-navbar.speaking .nav-item {
+    padding: 7px;
+    justify-content: center;
+    min-width: 38px;
+  }
+
+  /* Accessibility Panel */
+  .accessibility-panel {
+    position: fixed;
+    right: 20px;
+    top: 70px;
+    z-index: 40;
+    width: min(340px, 92vw);
+    background: #0a120d;
+    border: 1px solid #294332;
+    border-radius: 8px;
+    padding: 18px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+    animation: slideIn 0.22s ease-out;
+  }
+  .accessibility-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #203328;
+  }
+  .accessibility-head .eyebrow {
+    font: 8px 'DM Mono', monospace;
+    color: var(--accent);
+  }
+  .accessibility-head h3 {
+    font-size: 15px;
+    margin: 4px 0 0;
+  }
+  .accessibility-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid #203328;
+  }
 
 /* ======================================================== */
 /* SETTINGS DRAWER & THEME SWATCHES                         */
