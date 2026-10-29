@@ -163,6 +163,7 @@ const App = forwardRef(function App(
   const [conversations, setConversations] = useState([]);
   const [error, setError] = useState("");
   const [apiOnline, setApiOnline] = useState(false);
+  const [isBackendWakingUp, setIsBackendWakingUp] = useState(false);
   const [listening, setListening] = useState(false);
   const [muted, setMuted] = useState(false);
   const [autoGrammar, setAutoGrammar] = useState(true);
@@ -172,6 +173,7 @@ const App = forwardRef(function App(
   const transcriptRef = useRef(null);
   const recognitionRef = useRef(null);
   const abortRef = useRef(null);
+  const wakeAttemptsRef = useRef(0);
 
   useImperativeHandle(ref, () => ({
     sendPendingMessage: () => {
@@ -204,6 +206,8 @@ const App = forwardRef(function App(
         api.conversations(),
       ]);
       setApiOnline(health.status === "ok");
+      setIsBackendWakingUp(false);
+      wakeAttemptsRef.current = 0;
       setProviders(providerData.providers || []);
       setSettings((s) => {
         let activeTheme = s.theme;
@@ -223,10 +227,14 @@ const App = forwardRef(function App(
       setError("");
     } catch {
       setApiOnline(false);
-      // Only display the error banner on initial load if we have no provider data yet,
-      // so periodic background polling does not flash error banners over the screen.
-      if (isInitial || providers.length === 0) {
-        const isLocal = typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+      const isLocal = typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+
+      if (!isLocal && (isInitial || wakeAttemptsRef.current < 12)) {
+        // Render spins down after 15 min of inactivity. Keep waking banner active and allow auto-retries
+        setIsBackendWakingUp(true);
+        wakeAttemptsRef.current += 1;
+      } else if (isInitial || providers.length === 0) {
+        setIsBackendWakingUp(false);
         setError(
           isLocal
             ? "Backend unavailable. Please start the FastAPI backend server and refresh."
@@ -238,9 +246,18 @@ const App = forwardRef(function App(
 
   useEffect(() => {
     loadData(true);
-    const interval = setInterval(() => loadData(false), 20000);
+    const interval = setInterval(() => loadData(false), 25000);
     return () => clearInterval(interval);
   }, [loadData]);
+
+  // Fast background auto-retry when waking up cloud backend (Render cold start)
+  useEffect(() => {
+    if (!isBackendWakingUp) return;
+    const wakeTimer = setInterval(() => {
+      loadData(false);
+    }, 4000);
+    return () => clearInterval(wakeTimer);
+  }, [isBackendWakingUp, loadData]);
 
   useEffect(() => {
     if (transcriptRef.current) {
@@ -865,12 +882,38 @@ const App = forwardRef(function App(
           )}
         </div>
 
+        {isBackendWakingUp && !apiOnline && (
+          <div className="waking-banner">
+            <span className="waking-pulse" />
+            <span>Connecting to cloud backend (Render server waking up from sleep, ~30s)...</span>
+            <button
+              type="button"
+              onClick={() => loadData(true)}
+              className="btn-retry-quick"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
         {error && (
           <div className="error-banner">
             <span>{error}</span>
-            <button onClick={() => setError("")} aria-label="Dismiss error">
-              <X size={14} />
-            </button>
+            <div className="error-banner-actions">
+              <button
+                type="button"
+                onClick={() => {
+                  setError("");
+                  loadData(true);
+                }}
+                className="btn-retry-banner"
+              >
+                Retry
+              </button>
+              <button type="button" onClick={() => setError("")} aria-label="Dismiss error">
+                <X size={14} />
+              </button>
+            </div>
           </div>
         )}
 

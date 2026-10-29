@@ -34,9 +34,11 @@ export function getApiBaseUrl() {
 
   // 3. If accessed from a mobile device or other computer over local Wi-Fi / LAN (192.168.x.x, 10.x.x.x)
   if (/^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(hostname)) {
-    // If an explicit envUrl exists, use it
-    if (envUrl) return envUrl.replace(/\/$/, "");
-    // Default to the same local IP port 8000 (host machine backend)
+    // If an explicit external or remote envUrl exists, use it
+    if (envUrl && !envUrl.includes("localhost") && !envUrl.includes("127.0.0.1")) {
+      return envUrl.replace(/\/$/, "");
+    }
+    // Default to the same host machine local IP port 8000
     return `http://${hostname}:8000`;
   }
 
@@ -51,7 +53,7 @@ export const API_BASE = getApiBaseUrl();
  * If a local endpoint fails to connect (e.g. mobile device accessing dev server without
  * a local backend running on 0.0.0.0), it gracefully falls back to the production Render backend.
  */
-export async function safeFetch(url, options = {}, timeoutMs = 28000) {
+export async function safeFetch(url, options = {}, timeoutMs = 45000) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -61,7 +63,14 @@ export async function safeFetch(url, options = {}, timeoutMs = 28000) {
   };
 
   try {
-    const response = await fetch(url, fetchOptions);
+    let response = await fetch(url, fetchOptions);
+
+    // If Render is in the middle of a 502/503 cold-start boot, retry once after a short delay
+    if ((response.status === 502 || response.status === 503 || response.status === 504) && !url.includes("localhost")) {
+      await new Promise((r) => setTimeout(r, 3000));
+      response = await fetch(url, fetchOptions);
+    }
+
     clearTimeout(timeoutId);
     return response;
   } catch (err) {
