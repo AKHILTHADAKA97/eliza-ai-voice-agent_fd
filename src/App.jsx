@@ -245,7 +245,7 @@ const App = forwardRef(function App(
     return activeModel ? `${name} · ${activeModel.toUpperCase()}` : name;
   }, [providers, settings.default_provider, settings.default_model]);
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (isInitial = false) => {
     try {
       const [health, providerData, savedSettings, savedConversations] = await Promise.all([
         api.health(),
@@ -260,18 +260,22 @@ const App = forwardRef(function App(
       setError("");
     } catch {
       setApiOnline(false);
-      const isLocal = typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
-      setError(
-        isLocal
-          ? "Backend unavailable. Please start the FastAPI backend server and refresh."
-          : "Backend unavailable. Please verify that the backend on Render is active."
-      );
+      // Only display the error banner on initial load if we have no provider data yet,
+      // so periodic background polling does not flash error banners over the screen.
+      if (isInitial || providers.length === 0) {
+        const isLocal = typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+        setError(
+          isLocal
+            ? "Backend unavailable. Please start the FastAPI backend server and refresh."
+            : "Backend unavailable. Please verify that the backend on Render is active."
+        );
+      }
     }
-  }, []);
+  }, [providers.length]);
 
   useEffect(() => {
-    loadData();
-    const interval = setInterval(loadData, 15000);
+    loadData(true);
+    const interval = setInterval(() => loadData(false), 20000);
     return () => clearInterval(interval);
   }, [loadData]);
 
@@ -513,14 +517,18 @@ const App = forwardRef(function App(
         if (onQuestionUsed) onQuestionUsed(0, true, blockUntil);
       }
       setStatus("idle");
+      const isNetworkErr = !err.status && (err.message === "Failed to fetch" || err.message?.includes("NetworkError") || err.name === "TypeError");
+      const displayMsg = isNetworkErr
+        ? "Network connection issue. Please check your connection or retry in a moment."
+        : (err.message || "Failed to reach AI provider.");
       const errorMsg = {
         role: "assistant",
-        content: err.message || "Failed to reach AI provider.",
+        content: displayMsg,
         error: true,
         created_at: new Date().toISOString(),
       };
       setMessages([...nextHistory, errorMsg]);
-      setError(err.message || "Request failed.");
+      setError(displayMsg);
     }
   };
 

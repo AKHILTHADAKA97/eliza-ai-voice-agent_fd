@@ -1,7 +1,7 @@
 /**
  * Access Control and Usage Enforcement API Service.
  */
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
+import { API_BASE, safeFetch } from "./config.js";
 
 export function getStoredToken() {
   try {
@@ -68,7 +68,7 @@ async function authRequest(path, options = {}) {
     ...(options.headers || {}),
   };
 
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await safeFetch(`${API_BASE}${path}`, {
     ...options,
     headers,
   });
@@ -90,7 +90,7 @@ async function authRequest(path, options = {}) {
 
 export const accessApi = {
   verifyEmail: async (email) => {
-    const response = await fetch(`${API_BASE}/api/v1/access/verify-email`, {
+    const response = await safeFetch(`${API_BASE}/api/v1/access/verify-email`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -111,7 +111,7 @@ export const accessApi = {
   },
 
   googleLogin: async ({ email, credential, name, picture } = {}) => {
-    const response = await fetch(`${API_BASE}/api/v1/access/google-login`, {
+    const response = await safeFetch(`${API_BASE}/api/v1/access/google-login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

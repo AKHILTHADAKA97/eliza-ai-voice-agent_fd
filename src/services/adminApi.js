@@ -1,7 +1,7 @@
 /**
  * Admin API client for authentication, analytics overview, email records, and feedback management.
  */
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
+import { API_BASE, safeFetch } from "./config.js";
 
 export function getAdminToken() {
   try {
@@ -32,7 +32,7 @@ async function adminRequest(path, options = {}) {
     ...(options.headers || {}),
   };
 
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await safeFetch(`${API_BASE}${path}`, {
     ...options,
     headers,
   });

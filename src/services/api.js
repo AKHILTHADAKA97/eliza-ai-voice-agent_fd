@@ -1,4 +1,4 @@
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
+import { API_BASE, safeFetch } from "./config.js";
 
 function getSessionId() {
   try {
@@ -21,7 +21,7 @@ async function request(path, options = {}) {
     "X-Session-ID": getSessionId(),
     ...(options.headers || {}),
   };
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await safeFetch(`${API_BASE}${path}`, {
     ...options,
     headers,
   });
@@ -39,6 +39,7 @@ export const api = {
   updateSettings: (body) => request("/api/v1/settings", { method: "PATCH", body: JSON.stringify(body) }),
   conversations: () => request("/api/v1/conversations"),
   getConversation: (id) => request(`/api/v1/conversations/${encodeURIComponent(id)}`),
+  conversation: (id) => request(`/api/v1/conversations/${encodeURIComponent(id)}`),
   deleteConversation: (id) => request(`/api/v1/conversations/${encodeURIComponent(id)}`, { method: "DELETE" }),
   chat: (body) => request("/api/v1/chat", { method: "POST", body: JSON.stringify(body) }),
 };
