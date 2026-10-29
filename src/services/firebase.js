@@ -70,7 +70,17 @@ export async function signInWithGoogle() {
   try {
     const result = await signInWithPopup(auth, googleProvider);
     const user = result.user;
-    const idToken = await user.getIdToken(true); // force refresh for fresh token
+    
+    // Obtain the valid fresh ID token from the sign-in session directly without unnecessary network refresh
+    let idToken = "";
+    try {
+      idToken = await user.getIdToken(false);
+    } catch {
+      idToken = user.accessToken || "";
+    }
+    if (!idToken) {
+      idToken = user.accessToken || result._tokenResponse?.idToken || "";
+    }
 
     return {
       user,

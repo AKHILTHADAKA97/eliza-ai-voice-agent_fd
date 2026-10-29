@@ -60,6 +60,25 @@ export function detectBrowser() {
   return "Browser";
 }
 
+function formatErrorMessage(data, fallback = "Request failed") {
+  if (!data) return fallback;
+  if (typeof data.detail === "string") return data.detail;
+  if (Array.isArray(data.detail) && data.detail.length > 0) {
+    return data.detail
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (item && typeof item === "object") return item.msg || item.message || JSON.stringify(item);
+        return String(item);
+      })
+      .join(", ");
+  }
+  if (data.detail && typeof data.detail === "object" && data.detail.message) {
+    return data.detail.message;
+  }
+  if (typeof data.message === "string") return data.message;
+  return fallback;
+}
+
 async function authRequest(path, options = {}) {
   const token = getStoredToken();
   const headers = {
@@ -76,10 +95,7 @@ async function authRequest(path, options = {}) {
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    const errorMsg =
-      (typeof data.detail === "object" && data.detail?.message)
-        ? data.detail.message
-        : (data.detail || data.message || `Request failed (${response.status})`);
+    const errorMsg = formatErrorMessage(data, `Request failed (${response.status})`);
     const error = new Error(errorMsg);
     error.status = response.status;
     error.data = data;
@@ -101,7 +117,7 @@ export const accessApi = {
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(data.detail || data.message || "Failed to verify email.");
+      throw new Error(formatErrorMessage(data, "Failed to verify email."));
     }
     if (data.sessionToken) {
       setStoredToken(data.sessionToken);
@@ -115,17 +131,17 @@ export const accessApi = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        email,
-        credential,
-        name,
-        picture,
-        device_type: detectDeviceType(),
-        browser_name: detectBrowser(),
+        email: email || "",
+        credential: credential || "",
+        name: (name || "").slice(0, 256),
+        picture: (picture || "").slice(0, 2048),
+        device_type: detectDeviceType().slice(0, 64),
+        browser_name: detectBrowser().slice(0, 64),
       }),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(data.detail || data.message || "Failed to log in with Google.");
+      throw new Error(formatErrorMessage(data, "Failed to log in with Google."));
     }
     if (data.sessionToken) {
       setStoredToken(data.sessionToken);
