@@ -140,31 +140,55 @@ function speak(text, settings, onStart, onEnd) {
 
   const spokenText = prepareSpeechText(text);
   if (!spokenText || !spokenText.trim()) return false;
-  const utterance = new SpeechSynthesisUtterance(spokenText);
-  const profile = VOICE_PROFILES[settings.voice_profile] || VOICE_PROFILES.natural;
-  utterance.rate = Math.max(0.5, Math.min(2, Number(settings.speech_rate || 1) * profile.rate));
-  utterance.pitch = profile.pitch;
-  const voices = window.speechSynthesis.getVoices();
-  const explicitVoice = voices.find((v) => v.name === settings.voice_name);
-  const preferredVoice = voices.find((v) => profile.keywords.some((word) => v.name.toLowerCase().includes(word)));
-  if (explicitVoice) utterance.voice = explicitVoice;
-  else if (preferredVoice) utterance.voice = preferredVoice;
-  utterance.onstart = onStart;
-  utterance.onend = onEnd;
-  utterance.onerror = () => {
-    if (onEnd) onEnd();
-  };
 
-  // 40ms delay ensures mobile Safari & Chrome engines process queued speech without cancellation
-  setTimeout(() => {
-    try {
-      window.speechSynthesis.speak(utterance);
-    } catch {
+  // Wait for voices to load before speaking (fixes voice profile not changing)
+  function speakWithVoices() {
+    const utterance = new SpeechSynthesisUtterance(spokenText);
+    const profile = VOICE_PROFILES[settings.voice_profile] || VOICE_PROFILES.natural;
+    utterance.rate = Math.max(0.5, Math.min(2, Number(settings.speech_rate || 1) * profile.rate));
+    utterance.pitch = profile.pitch;
+    const voices = window.speechSynthesis.getVoices();
+    const explicitVoice = voices.find((v) => v.name === settings.voice_name);
+    const preferredVoice = voices.find((v) => profile.keywords.some((word) => v.name.toLowerCase().includes(word)));
+    if (explicitVoice) utterance.voice = explicitVoice;
+    else if (preferredVoice) utterance.voice = preferredVoice;
+    utterance.lang = (explicitVoice || preferredVoice)?.lang || "en-US";
+    utterance.onstart = onStart;
+    utterance.onend = onEnd;
+    utterance.onerror = () => {
       if (onEnd) onEnd();
-    }
-  }, 40);
+    };
 
-  return true;
+    // 40ms delay ensures mobile Safari & Chrome engines process queued speech without cancellation
+    setTimeout(() => {
+      try {
+        window.speechSynthesis.speak(utterance);
+      } catch {
+        if (onEnd) onEnd();
+      }
+    }, 40);
+    return true;
+  }
+
+  const voices = window.speechSynthesis.getVoices();
+  if (voices.length === 0) {
+    // Voices not loaded yet — wait for the voiceschanged event
+    const onVoicesChanged = () => {
+      window.speechSynthesis.onvoiceschanged = null;
+      speakWithVoices();
+    };
+    window.speechSynthesis.onvoiceschanged = onVoicesChanged;
+    // Fallback timeout in case voiceschanged never fires
+    setTimeout(() => {
+      if (window.speechSynthesis.onvoiceschanged === onVoicesChanged) {
+        window.speechSynthesis.onvoiceschanged = null;
+        speakWithVoices();
+      }
+    }, 1000);
+    return true;
+  }
+
+  return speakWithVoices();
 }
 
 const App = forwardRef(function App(

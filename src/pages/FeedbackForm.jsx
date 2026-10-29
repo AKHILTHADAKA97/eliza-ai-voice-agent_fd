@@ -5,7 +5,7 @@ import { accessApi } from "../services/accessApi.js";
 const CATEGORIES = [
   "Voice Experience",
   "Answer Quality",
-  "UI/UX",
+  "Freelance",
   "Bug",
   "Feature Request",
   "Other",
