@@ -37,9 +37,33 @@ export const api = {
   providers: () => request("/api/v1/providers"),
   settings: () => request("/api/v1/settings"),
   updateSettings: (body) => request("/api/v1/settings", { method: "PATCH", body: JSON.stringify(body) }),
+  saveSettings: (body) => request("/api/v1/settings", { method: "PATCH", body: JSON.stringify(body) }),
   conversations: () => request("/api/v1/conversations"),
   getConversation: (id) => request(`/api/v1/conversations/${encodeURIComponent(id)}`),
   conversation: (id) => request(`/api/v1/conversations/${encodeURIComponent(id)}`),
   deleteConversation: (id) => request(`/api/v1/conversations/${encodeURIComponent(id)}`, { method: "DELETE" }),
   chat: (body) => request("/api/v1/chat", { method: "POST", body: JSON.stringify(body) }),
+  audioVoices: () => request("/api/v1/audio/voices"),
+  tts: async (body) => {
+    const headers = {
+      "Content-Type": "application/json",
+      "X-Session-ID": getSessionId(),
+    };
+    try {
+      const response = await safeFetch(`${API_BASE}/api/v1/audio/tts`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      });
+      const cType = response.headers.get("content-type") || "";
+      if (cType.includes("audio")) {
+        const blob = await response.blob();
+        return { ok: true, blob, audioUrl: URL.createObjectURL(blob) };
+      }
+      const data = await response.json().catch(() => ({}));
+      return { ok: false, ...data };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  },
 };

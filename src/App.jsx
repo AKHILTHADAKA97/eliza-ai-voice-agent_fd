@@ -6,30 +6,30 @@ import Orb from "./components/Orb.jsx";
 import SettingsDrawer from "./components/SettingsDrawer.jsx";
 import MarkdownRenderer from "./components/MarkdownRenderer.jsx";
 import { correctGrammar, autoCorrectOnDelimiter } from "./services/grammar.js";
+import {
+  VOICE_PROFILES,
+  INDIAN_LANGUAGES,
+  ALL_SUPPORTED_LANGUAGES,
+  speakAssistantResponse,
+  stopAllSpeech,
+} from "./services/voiceLibrary.js";
 
 const initialSettings = {
   default_provider: "auto",
   default_model: "",
   auto_speak: true,
   voice_name: "",
-  voice_profile: "natural",
+  voice_profile: "eliza",
+  voice_lang: "en-IN",
+  speech_recognition_lang: "en-IN",
+  voice_engine: "auto",
   speech_rate: 1,
+  speech_pitch: 1,
   response_style: "balanced",
   custom_system_prompt: "",
   detailed_responses: false,
   theme: "green",
 };
-
-const VOICE_PROFILES = {
-    natural: { rate: 1, pitch: 1, keywords: ["natural", "google", "microsoft", "aria", "samantha"] },
-    warm: { rate: 0.94, pitch: 1.06, keywords: ["warm", "jenny", "samantha", "aria", "female"] },
-    energetic: { rate: 1.08, pitch: 1.08, keywords: ["energetic", "guy", "ava", "emma"] },
-    calm: { rate: 0.88, pitch: 0.92, keywords: ["calm", "soft", "serena", "david"] },
-    narrator: { rate: 0.92, pitch: 0.96, keywords: ["narrator", "daniel", "george", "alex"] },
-    professional: { rate: 0.98, pitch: 1, keywords: ["professional", "aria", "jenny", "david", "google"] },
-    female: { rate: 0.95, pitch: 1.12, keywords: ["female", "woman", "samantha", "aria", "jenny", "victoria", "zira", "hazel", "kate", "catherine"] },
-    male: { rate: 0.95, pitch: 0.88, keywords: ["male", "man", "david", "daniel", "george", "fred", "brian", "thomas", "mike"] },
-  };
 
 const RESPONSE_PROMPTS = {
   balanced: "Deliver a clear, well-structured, insightful response. Lead with the direct answer or main takeaway, follow with step-by-step reasoning or context, and conclude with practical next steps. Use headings, lists, or tables where they improve readability.",
@@ -130,65 +130,11 @@ function buildSystemPrompt(settings) {
 }
 
 function speak(text, settings, onStart, onEnd) {
-  if (typeof window === "undefined" || !("speechSynthesis" in window)) return false;
-  try {
-    if (window.speechSynthesis.paused) {
-      window.speechSynthesis.resume();
-    }
-    window.speechSynthesis.cancel();
-  } catch {}
-
+  if (typeof window === "undefined") return false;
   const spokenText = prepareSpeechText(text);
   if (!spokenText || !spokenText.trim()) return false;
-
-  // Wait for voices to load before speaking (fixes voice profile not changing)
-  function speakWithVoices() {
-    const utterance = new SpeechSynthesisUtterance(spokenText);
-    const profile = VOICE_PROFILES[settings.voice_profile] || VOICE_PROFILES.natural;
-    utterance.rate = Math.max(0.5, Math.min(2, Number(settings.speech_rate || 1) * profile.rate));
-    utterance.pitch = profile.pitch;
-    const voices = window.speechSynthesis.getVoices();
-    const explicitVoice = voices.find((v) => v.name === settings.voice_name);
-    const preferredVoice = voices.find((v) => profile.keywords.some((word) => v.name.toLowerCase().includes(word)));
-    if (explicitVoice) utterance.voice = explicitVoice;
-    else if (preferredVoice) utterance.voice = preferredVoice;
-    utterance.lang = (explicitVoice || preferredVoice)?.lang || "en-US";
-    utterance.onstart = onStart;
-    utterance.onend = onEnd;
-    utterance.onerror = () => {
-      if (onEnd) onEnd();
-    };
-
-    // 40ms delay ensures mobile Safari & Chrome engines process queued speech without cancellation
-    setTimeout(() => {
-      try {
-        window.speechSynthesis.speak(utterance);
-      } catch {
-        if (onEnd) onEnd();
-      }
-    }, 40);
-    return true;
-  }
-
-  const voices = window.speechSynthesis.getVoices();
-  if (voices.length === 0) {
-    // Voices not loaded yet — wait for the voiceschanged event
-    const onVoicesChanged = () => {
-      window.speechSynthesis.onvoiceschanged = null;
-      speakWithVoices();
-    };
-    window.speechSynthesis.onvoiceschanged = onVoicesChanged;
-    // Fallback timeout in case voiceschanged never fires
-    setTimeout(() => {
-      if (window.speechSynthesis.onvoiceschanged === onVoicesChanged) {
-        window.speechSynthesis.onvoiceschanged = null;
-        speakWithVoices();
-      }
-    }, 1000);
-    return true;
-  }
-
-  return speakWithVoices();
+  speakAssistantResponse(spokenText, settings, { onStart, onEnd });
+  return true;
 }
 
 const App = forwardRef(function App(
@@ -286,9 +232,7 @@ const App = forwardRef(function App(
   }, [messages, status]);
 
   const stopSpeech = useCallback(() => {
-    if ("speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
-    }
+    stopAllSpeech();
     if (status === "speaking") setStatus("idle");
   }, [status]);
 
@@ -344,7 +288,7 @@ const App = forwardRef(function App(
       rec.continuous = false;
       rec.interimResults = true;
       rec.maxAlternatives = 1;
-      rec.lang = navigator.language || "en-US";
+      rec.lang = settings.speech_recognition_lang || "en-IN";
       rec.onstart = () => {
         setListening(true);
         setStatus("listening");

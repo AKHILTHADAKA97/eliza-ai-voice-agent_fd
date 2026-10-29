@@ -1,5 +1,27 @@
 import { useEffect, useState } from "react";
-import { X, SlidersHorizontal, AudioLines, Palette, Cpu, Play, Sparkles, Phone, UserCheck } from "lucide-react";
+import {
+  X,
+  SlidersHorizontal,
+  AudioLines,
+  Palette,
+  Cpu,
+  Play,
+  Sparkles,
+  Phone,
+  UserCheck,
+  Volume2,
+  Square,
+  Globe,
+  Mic,
+  Check,
+} from "lucide-react";
+import {
+  VOICE_PROFILES,
+  INDIAN_LANGUAGES,
+  ALL_SUPPORTED_LANGUAGES,
+  speakAssistantResponse,
+  stopAllSpeech,
+} from "../services/voiceLibrary.js";
 
 const SOLID_THEMES = [
   { id: "green", name: "Green", color: "#78f6a8" },
@@ -29,54 +51,69 @@ const GRADIENT_THEMES = [
 
 export default function SettingsDrawer({ open, onClose, providers, settings, onChange }) {
   const configured = providers.filter((p) => p.available);
-  const currentProviderObj = settings.default_provider === "auto"
-    ? configured[0]
-    : providers.find((p) => p.id === settings.default_provider);
+  const currentProviderObj =
+    settings.default_provider === "auto"
+      ? configured[0]
+      : providers.find((p) => p.id === settings.default_provider);
   const availableModels = currentProviderObj?.models || [];
   const [voices, setVoices] = useState([]);
+  const [playingProfileId, setPlayingProfileId] = useState(null);
 
   useEffect(() => {
-    if (!("speechSynthesis" in window)) return;
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
     const refresh = () => setVoices(window.speechSynthesis.getVoices());
     refresh();
     window.speechSynthesis.addEventListener?.("voiceschanged", refresh);
     return () => window.speechSynthesis.removeEventListener?.("voiceschanged", refresh);
   }, []);
 
-  const testVoice = () => {
-    if (!("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel();
-    const profileMap = {
-      natural: [1, 1],
-      warm: [0.94, 1.06],
-      energetic: [1.08, 1.08],
-      calm: [0.88, 0.92],
-      narrator: [0.92, 0.96],
-      professional: [0.98, 1],
-      female: [0.95, 1.12],
-      male: [0.95, 0.88],
-    };
-    const [rate, pitch] = profileMap[settings.voice_profile || "natural"] || profileMap.natural;
-    const utterance = new SpeechSynthesisUtterance("Hello! I am ELIZA AI, your voice assistant. Ready whenever you are.");
-    utterance.rate = Math.max(0.5, Math.min(2, Number(settings.speech_rate || 1) * rate));
-    utterance.pitch = pitch;
-    const voice = voices.find((v) => v.name === settings.voice_name);
-    if (voice) utterance.voice = voice;
-    window.speechSynthesis.speak(utterance);
+  const handlePreviewVoice = (profileId, e) => {
+    if (e && e.stopPropagation) e.stopPropagation();
+
+    if (playingProfileId === profileId) {
+      stopAllSpeech();
+      setPlayingProfileId(null);
+      return;
+    }
+
+    stopAllSpeech();
+    const prof = VOICE_PROFILES[profileId] || VOICE_PROFILES.eliza;
+    setPlayingProfileId(profileId);
+
+    speakAssistantResponse(
+      prof.sample,
+      {
+        ...settings,
+        voice_profile: prof.id,
+      },
+      {
+        onEnd: () => setPlayingProfileId(null),
+        onError: () => setPlayingProfileId(null),
+      }
+    );
+  };
+
+  const testCurrentSettings = () => {
+    const currentProf = settings.voice_profile || "eliza";
+    handlePreviewVoice(currentProf);
   };
 
   const handleProviderChange = (newProvider) => {
-    const targetProv = newProvider === "auto"
-      ? configured[0]
-      : providers.find((p) => p.id === newProvider);
+    const targetProv =
+      newProvider === "auto"
+        ? configured[0]
+        : providers.find((p) => p.id === newProvider);
     onChange({
       default_provider: newProvider,
       default_model: targetProv?.default_model || "",
     });
   };
 
-  const activeProviderName = currentProviderObj?.name || (settings.default_provider === "auto" ? "Automatic Routing" : settings.default_provider);
-  const activeModelName = settings.default_model || currentProviderObj?.default_model || "None configured";
+  const activeProviderName =
+    currentProviderObj?.name ||
+    (settings.default_provider === "auto" ? "Automatic Routing" : settings.default_provider);
+  const activeModelName =
+    settings.default_model || currentProviderObj?.default_model || "None configured";
 
   if (!open) return null;
 
@@ -119,7 +156,8 @@ export default function SettingsDrawer({ open, onClose, providers, settings, onC
             <option value="auto">Automatic routing (prioritizes active credentials)</option>
             {providers.map((p) => (
               <option key={p.id} value={p.id} disabled={!p.available}>
-                {p.name}{p.available ? ` (${p.default_model || "Connected"})` : " — not configured"}
+                {p.name}
+                {p.available ? ` (${p.default_model || "Connected"})` : " — not configured"}
               </option>
             ))}
           </select>
@@ -150,28 +188,19 @@ export default function SettingsDrawer({ open, onClose, providers, settings, onC
           <p className="field-help">
             Backend is connected to active providers. Keys and credentials are securely managed on the server.
           </p>
-
-          <div className="provider-list">
-            {providers.map((p) => (
-              <div className="provider-row" key={p.id}>
-                <span className={`status-dot ${p.available ? "online" : ""}`} />
-                <span>{p.name}</span>
-                <small>{p.available ? p.default_model || "Connected" : "Not configured"}</small>
-              </div>
-            ))}
-          </div>
         </section>
 
-        {/* VOICE CONFIGURATION */}
+        {/* COMPREHENSIVE VOICE LIBRARY & SYNTHESIS */}
         <section className="settings-section">
           <div className="section-heading">
             <AudioLines size={16} />
-            <h3>Voice Output</h3>
+            <h3>Voice Library & Synthesis</h3>
           </div>
+
           <label className="toggle-row">
             <span>
               <b>Speak responses</b>
-              <small>Read the assistant's answer aloud with speech synthesis</small>
+              <small>Read the assistant's answer aloud with natural speech</small>
             </span>
             <input
               type="checkbox"
@@ -180,52 +209,181 @@ export default function SettingsDrawer({ open, onClose, providers, settings, onC
             />
           </label>
 
-          <label className="field-label" htmlFor="voice-profile">Voice profile</label>
+          {/* Voice Engine Mode */}
+          <label className="field-label" htmlFor="voice-engine">
+            Voice Synthesis Engine
+          </label>
           <select
-            id="voice-profile"
-            value={settings.voice_profile || "natural"}
-            onChange={(e) => onChange({ voice_profile: e.target.value })}
+            id="voice-engine"
+            value={settings.voice_engine || "auto"}
+            onChange={(e) => onChange({ voice_engine: e.target.value })}
           >
-            <option value="natural">Natural · balanced everyday voice</option>
-            <option value="female">Female · clear feminine voice</option>
-            <option value="male">Male · clear masculine voice</option>
-            <option value="warm">Warm · friendly and welcoming</option>
-            <option value="energetic">Energetic · lively and upbeat</option>
-            <option value="calm">Calm · slower and soothing</option>
-            <option value="narrator">Narrator · measured storytelling</option>
-            <option value="professional">Professional · clear and composed</option>
+            <option value="auto">ElevenLabs Neural Voice + Device Fallback (Recommended)</option>
+            <option value="elevenlabs">ElevenLabs Neural Voice Only</option>
+            <option value="browser">Device Web Speech API Only</option>
+          </select>
+          <p className="field-help">
+            ElevenLabs provides natural, studio-quality AI voices. If unavailable or offline, the app automatically falls back to your device's browser speech engine.
+          </p>
+
+          {/* Voice Personality Profiles */}
+          <label className="field-label" style={{ marginTop: "14px" }}>
+            Assistant Voice Profile ({Object.keys(VOICE_PROFILES).length} curated personas)
+          </label>
+          <div className="voice-profiles-grid">
+            {Object.values(VOICE_PROFILES).map((prof) => {
+              const isSelected = (settings.voice_profile || "eliza").toLowerCase() === prof.id;
+              const isPlaying = playingProfileId === prof.id;
+
+              return (
+                <div
+                  key={prof.id}
+                  className={`voice-profile-card ${isSelected ? "active" : ""}`}
+                  onClick={() => onChange({ voice_profile: prof.id })}
+                >
+                  <div className="voice-card-header">
+                    <div className="voice-card-title">
+                      {isSelected ? <Check size={14} color="var(--accent)" /> : <Volume2 size={14} />}
+                      <span>{prof.name}</span>
+                      <small style={{ color: "#748a7b", fontSize: "10px" }}>· {prof.gender}</small>
+                    </div>
+                    {prof.badge && <span className="voice-card-badge">{prof.badge}</span>}
+                  </div>
+
+                  <div className="voice-card-meta">
+                    <span>{prof.accent}</span>
+                    <span>•</span>
+                    <span>{prof.role}</span>
+                  </div>
+
+                  <p className="voice-card-desc">{prof.description}</p>
+
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "6px" }}>
+                    <small style={{ fontSize: "9px", color: "#5a7563" }}>
+                      Search: {prof.search}
+                    </small>
+                    <button
+                      type="button"
+                      className={`voice-preview-btn ${isPlaying ? "playing" : ""}`}
+                      onClick={(e) => handlePreviewVoice(prof.id, e)}
+                      title={`Preview ${prof.name}'s voice`}
+                    >
+                      {isPlaying ? <Square size={11} /> : <Play size={11} />}
+                      <span>{isPlaying ? "Stop" : "Preview"}</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Spoken Output Language */}
+          <label className="field-label" htmlFor="voice-lang" style={{ marginTop: "12px" }}>
+            <span style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+              <Globe size={13} /> Spoken Voice Language ({INDIAN_LANGUAGES.length} Indian languages supported)
+            </span>
+          </label>
+          <select
+            id="voice-lang"
+            value={settings.voice_lang || "en-IN"}
+            onChange={(e) => onChange({ voice_lang: e.target.value })}
+          >
+            <optgroup label="Recommended Defaults & International">
+              <option value="en-IN">English (India) · en-IN (Recommended Default)</option>
+              <option value="hi-IN">Hindi (हिन्दी) · hi-IN</option>
+              <option value="en-US">English (United States) · en-US</option>
+              <option value="en-GB">English (United Kingdom) · en-GB</option>
+            </optgroup>
+            <optgroup label="Major Indian Languages (ElevenLabs & Multilingual)">
+              {INDIAN_LANGUAGES.filter((l) => l.code !== "en-IN" && l.code !== "hi-IN").map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.name} ({l.native}) · {l.code}
+                </option>
+              ))}
+            </optgroup>
           </select>
 
-          <label className="field-label" htmlFor="voice">Specific browser voice (optional)</label>
+          {/* Independent Speech Recognition Language (Microphone STT) */}
+          <label className="field-label" htmlFor="speech-recognition-lang" style={{ marginTop: "14px" }}>
+            <span style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+              <Mic size={13} color="var(--accent)" /> Microphone Recognition Language (STT)
+            </span>
+          </label>
+          <select
+            id="speech-recognition-lang"
+            value={settings.speech_recognition_lang || "en-IN"}
+            onChange={(e) => onChange({ speech_recognition_lang: e.target.value })}
+          >
+            <optgroup label="Standard Microphones">
+              <option value="en-IN">English (India) · en-IN</option>
+              <option value="hi-IN">Hindi (हिन्दी) · hi-IN</option>
+              <option value="en-US">English (US) · en-US</option>
+              <option value="en-GB">English (UK) · en-GB</option>
+            </optgroup>
+            <optgroup label="All Indian Languages">
+              {INDIAN_LANGUAGES.filter((l) => l.code !== "en-IN" && l.code !== "hi-IN").map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.name} ({l.native}) · {l.code}
+                </option>
+              ))}
+            </optgroup>
+          </select>
+          <p className="field-help">
+            Microphone speech recognition and assistant voice output are configured independently. Selecting an Indian language or English for speech recognition lets you speak in your preferred tongue.
+          </p>
+
+          {/* Specific Device Browser Voice Fallback */}
+          <label className="field-label" htmlFor="voice" style={{ marginTop: "14px" }}>
+            Device Browser Voice Fallback (optional override)
+          </label>
           <select
             id="voice"
             value={settings.voice_name || ""}
             onChange={(e) => onChange({ voice_name: e.target.value })}
           >
-            <option value="">Auto-select based on profile</option>
+            <option value="">Auto-match installed voice based on profile</option>
             {voices.map((v) => (
               <option key={`${v.name}-${v.lang}`} value={v.name}>
-                {v.name} ({v.lang}){v.default ? " · default" : ""}
+                {v.name} [{v.lang}] {v.default ? " · device default" : ""}
               </option>
             ))}
           </select>
 
-          <button className="text-action" type="button" onClick={testVoice} style={{ marginTop: "8px" }}>
-            <Play size={13} /> Test selected voice profile
-          </button>
+          {/* Speech Rate & Pitch sliders */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginTop: "12px" }}>
+            <div>
+              <label className="field-label" htmlFor="rate">
+                Speed: {Number(settings.speech_rate || 1).toFixed(1)}×
+              </label>
+              <input
+                id="rate"
+                type="range"
+                min="0.5"
+                max="2"
+                step="0.1"
+                value={settings.speech_rate || 1}
+                onChange={(e) => onChange({ speech_rate: Number(e.target.value) })}
+              />
+            </div>
+            <div>
+              <label className="field-label" htmlFor="pitch">
+                Pitch: {Number(settings.speech_pitch || 1).toFixed(1)}×
+              </label>
+              <input
+                id="pitch"
+                type="range"
+                min="0.7"
+                max="1.3"
+                step="0.05"
+                value={settings.speech_pitch || 1}
+                onChange={(e) => onChange({ speech_pitch: Number(e.target.value) })}
+              />
+            </div>
+          </div>
 
-          <label className="field-label" htmlFor="rate" style={{ marginTop: "14px" }}>
-            Speech speed: {Number(settings.speech_rate || 1).toFixed(1)}×
-          </label>
-          <input
-            id="rate"
-            type="range"
-            min="0.5"
-            max="2"
-            step="0.1"
-            value={settings.speech_rate || 1}
-            onChange={(e) => onChange({ speech_rate: Number(e.target.value) })}
-          />
+          <button className="text-action" type="button" onClick={testCurrentSettings} style={{ marginTop: "10px" }}>
+            <Play size={13} /> Test Selected Voice & Speed
+          </button>
         </section>
 
         {/* ANSWER QUALITY & PERSONA */}
