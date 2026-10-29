@@ -3,7 +3,13 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
-  server: { host: "0.0.0.0", port: 5174 },
+  server: {
+    host: "0.0.0.0",
+    port: 5174,
+    headers: {
+      "Cross-Origin-Opener-Policy": "same-origin-allow-popups",
+    },
+  },
   build: {
     sourcemap: false,
     minify: "esbuild",

@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Activity, AudioLines, Check, ChevronDown, Copy, History, Menu, Mic, MicOff, Plus, Send, Settings2, Sparkles, Square, UserCheck, Volume2, VolumeX, X } from "lucide-react";
+import { forwardRef, useImperativeHandle, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Activity, AudioLines, Check, ChevronDown, Copy, History, Menu, Mic, MicOff, Plus, Send, Settings2, Sparkles, Square, UserCheck, Volume2, VolumeX, X, MessageSquarePlus } from "lucide-react";
 import { api } from "./services/api.js";
+import { accessApi, getStoredToken } from "./services/accessApi.js";
 import Orb from "./components/Orb.jsx";
 import SettingsDrawer from "./components/SettingsDrawer.jsx";
 import MarkdownRenderer from "./components/MarkdownRenderer.jsx";
@@ -129,8 +130,14 @@ function buildSystemPrompt(settings) {
 }
 
 function speak(text, settings, onStart, onEnd) {
-  if (!("speechSynthesis" in window)) return false;
-  window.speechSynthesis.cancel();
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return false;
+  try {
+    if (window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
+    }
+    window.speechSynthesis.cancel();
+  } catch {}
+
   const spokenText = prepareSpeechText(text);
   if (!spokenText || !spokenText.trim()) return false;
   const utterance = new SpeechSynthesisUtterance(spokenText);
@@ -144,12 +151,32 @@ function speak(text, settings, onStart, onEnd) {
   else if (preferredVoice) utterance.voice = preferredVoice;
   utterance.onstart = onStart;
   utterance.onend = onEnd;
-  utterance.onerror = onEnd;
-  window.speechSynthesis.speak(utterance);
+  utterance.onerror = () => {
+    if (onEnd) onEnd();
+  };
+
+  // 40ms delay ensures mobile Safari & Chrome engines process queued speech without cancellation
+  setTimeout(() => {
+    try {
+      window.speechSynthesis.speak(utterance);
+    } catch {
+      if (onEnd) onEnd();
+    }
+  }, 40);
+
   return true;
 }
 
-export default function App() {
+const App = forwardRef(function App(
+  {
+    accessData,
+    freeQuestionsCount = 0,
+    onQuestionUsed,
+    onRequestEmailGate,
+    onOpenFeedback,
+  },
+  ref
+) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [status, setStatus] = useState("idle");
@@ -170,6 +197,12 @@ export default function App() {
   const transcriptRef = useRef(null);
   const recognitionRef = useRef(null);
   const abortRef = useRef(null);
+
+  useImperativeHandle(ref, () => ({
+    sendPendingMessage: (text) => {
+      sendMessage(text);
+    },
+  }));
 
   const providerLabel = useMemo(() => {
     const activeModel = settings.default_model?.trim();
@@ -226,38 +259,90 @@ export default function App() {
     if (status === "speaking") setStatus("idle");
   }, [status]);
 
-  const startListening = useCallback(() => {
+  const handleToggleVoice = useCallback((e) => {
+    if (e && e.stopPropagation) e.stopPropagation();
+    // Unlock SpeechSynthesis audio playback context on mobile browsers
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        const dummy = new SpeechSynthesisUtterance("");
+        dummy.volume = 0;
+        window.speechSynthesis.speak(dummy);
+      } catch {}
+    }
+    setMuted((prev) => {
+      const next = !prev;
+      if (next) stopSpeech();
+      return next;
+    });
+  }, [stopSpeech]);
+
+  const startListening = useCallback(async () => {
     const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRec) {
-      setError("Speech recognition is not supported in this browser.");
+      setError("Speech recognition is not supported in this browser. Please use Chrome or Safari over HTTPS.");
       return;
     }
     stopSpeech();
-    const rec = new SpeechRec();
-    rec.continuous = false;
-    rec.interimResults = true;
-    rec.lang = navigator.language || "en-US";
-    rec.onstart = () => {
-      setListening(true);
-      setStatus("listening");
-    };
-    rec.onresult = (e) => {
-      const transcript = Array.from(e.results)
-        .map((r) => r[0].transcript)
-        .join("");
-      setInput(transcript);
-    };
-    rec.onerror = (e) => {
+
+    // Mobile audio context unlock
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        const dummy = new SpeechSynthesisUtterance("");
+        dummy.volume = 0;
+        window.speechSynthesis.speak(dummy);
+      } catch {}
+    }
+
+    // Explicit mobile microphone eligibility and permission request
+    if (typeof navigator !== "undefined" && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach((track) => track.stop());
+      } catch (micErr) {
+        if (micErr.name === "NotAllowedError" || micErr.name === "PermissionDeniedError") {
+          setError("Microphone permission was denied. Please allow microphone access in your browser settings.");
+          return;
+        }
+      }
+    }
+
+    try {
+      const rec = new SpeechRec();
+      rec.continuous = false;
+      rec.interimResults = true;
+      rec.maxAlternatives = 1;
+      rec.lang = navigator.language || "en-US";
+      rec.onstart = () => {
+        setListening(true);
+        setStatus("listening");
+        setError("");
+      };
+      rec.onresult = (e) => {
+        const transcript = Array.from(e.results)
+          .map((r) => r[0].transcript)
+          .join("");
+        setInput(transcript);
+      };
+      rec.onerror = (e) => {
+        setListening(false);
+        setStatus("idle");
+        if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+          setError("Microphone not eligible. Please ensure HTTPS or localhost and allow microphone permissions.");
+        } else if (e.error !== "no-speech") {
+          setError(`Microphone error: ${e.error}`);
+        }
+      };
+      rec.onend = () => {
+        setListening(false);
+        setStatus("idle");
+      };
+      recognitionRef.current = rec;
+      rec.start();
+    } catch (err) {
       setListening(false);
       setStatus("idle");
-      if (e.error !== "no-speech") setError(`Microphone error: ${e.error}`);
-    };
-    rec.onend = () => {
-      setListening(false);
-      setStatus("idle");
-    };
-    recognitionRef.current = rec;
-    rec.start();
+      setError(err.message || "Failed to start microphone.");
+    }
   }, [stopSpeech]);
 
   const stopListening = useCallback(() => {
@@ -296,6 +381,13 @@ export default function App() {
       text = correctGrammar(text);
     }
     setInput("");
+    const token = getStoredToken();
+    if (!token && freeQuestionsCount >= 1) {
+      if (onRequestEmailGate) {
+        onRequestEmailGate(text);
+        return;
+      }
+    }
     setError("");
     stopSpeech();
 
@@ -309,15 +401,35 @@ export default function App() {
     setStatus("thinking");
 
     try {
-      const resp = await api.chat({
-        message: text,
-        provider: settings.default_provider || "auto",
-        model: settings.default_model || undefined,
-        routing_mode: settings.default_provider === "auto" ? "auto" : "manual",
-        system_prompt: buildSystemPrompt(settings),
-        conversation_id: conversationId,
-        history: messages.slice(-10),
-      });
+      const token = getStoredToken();
+      let resp;
+      if (token) {
+        resp = await accessApi.submitQuestion({
+          message: text,
+          provider: settings.default_provider || "auto",
+          model: settings.default_model || undefined,
+          routing_mode: settings.default_provider === "auto" ? "auto" : "manual",
+          system_prompt: buildSystemPrompt(settings),
+          conversation_id: conversationId,
+          history: messages.slice(-10),
+        });
+        if (onQuestionUsed && resp.remainingQuestions !== undefined) {
+          onQuestionUsed(resp.remainingQuestions, resp.blocked, resp.blockedUntil);
+        }
+      } else {
+        resp = await api.chat({
+          message: text,
+          provider: settings.default_provider || "auto",
+          model: settings.default_model || undefined,
+          routing_mode: settings.default_provider === "auto" ? "auto" : "manual",
+          system_prompt: buildSystemPrompt(settings),
+          conversation_id: conversationId,
+          history: messages.slice(-10),
+        });
+        if (onQuestionUsed) {
+          onQuestionUsed(2, false, null);
+        }
+      }
 
       const assistantMsg = {
         role: "assistant",
@@ -339,6 +451,10 @@ export default function App() {
         );
       }
     } catch (err) {
+      if (err.data && (err.data.blocked || err.status === 403 || err.message?.includes("limit"))) {
+        const blockUntil = err.data?.detail?.blockedUntil || err.data?.blockedUntil;
+        if (onQuestionUsed) onQuestionUsed(0, true, blockUntil);
+      }
       setStatus("idle");
       const errorMsg = {
         role: "assistant",
@@ -368,6 +484,10 @@ export default function App() {
       setHistoryOpen(false);
       setError("");
     } catch (err) {
+      if (err.data && (err.data.blocked || err.status === 403 || err.message?.includes("limit"))) {
+        const blockUntil = err.data?.detail?.blockedUntil || err.data?.blockedUntil;
+        if (onQuestionUsed) onQuestionUsed(0, true, blockUntil);
+      }
       setError(err.message || "Failed to load conversation.");
     }
   };
@@ -379,6 +499,10 @@ export default function App() {
       setConversations((prev) => prev.filter((c) => c.id !== id));
       if (conversationId === id) newConversation();
     } catch (err) {
+      if (err.data && (err.data.blocked || err.status === 403 || err.message?.includes("limit"))) {
+        const blockUntil = err.data?.detail?.blockedUntil || err.data?.blockedUntil;
+        if (onQuestionUsed) onQuestionUsed(0, true, blockUntil);
+      }
       setError(err.message || "Failed to delete conversation.");
     }
   };
@@ -426,6 +550,29 @@ export default function App() {
           {apiOnline ? "SYSTEM ONLINE" : "BACKEND OFFLINE"}
           <span className="status-divider" />
           {providerLabel}
+          {accessData && (
+            <>
+              <span className="status-divider" />
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "5px",
+                  padding: "2px 8px",
+                  borderRadius: "6px",
+                  background: "rgba(192, 132, 252, 0.15)",
+                  border: "1px solid rgba(192, 132, 252, 0.35)",
+                  color: "#c084fc",
+                  fontSize: "11px",
+                  fontFamily: "'DM Mono', monospace",
+                  fontWeight: "700",
+                }}
+                title={`Account: ${accessData.email || ""}`}
+              >
+                QUESTIONS REMAINING: {accessData.remainingQuestions ?? accessData.remaining_questions ?? 0}/3
+              </span>
+            </>
+          )}
         </div>
         {/* <div className="top-actions">
           <button
@@ -461,93 +608,6 @@ export default function App() {
   >
     <Plus size={17} /> 
   </button> */}
-  <button
-  className="icon-button"
-  onClick={newConversation}
-  title="New conversation"
-  aria-label="New conversation"
-  style={{
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "5px",
-    width: "auto",
-    padding: "8px 8px",
-    fontSize: "12px",
-    whiteSpace: "nowrap",
-  }}
->
-  <Plus size={16} />
-  <span>New Chat</span>
-</button>
-
-  {/* History */}
-  <button
-    className={`icon-button ${historyOpen ? "selected" : ""}`}
-    onClick={() => setHistoryOpen((v) => !v)}
-    title="History"
-    aria-label="History"
-  >
-    <History size={17} />
-  </button>
-
-  {/* Stop Speech */}
-  {/* <button
-    className="icon-button"
-    onClick={stopSpeech}
-    title="Stop speech"
-    aria-label="Stop speech"
-  >
-    <Square size={17} />
-  </button> */}
-
-  {/* Voice Input */}
-  <button
-    className="icon-button"
-    onClick={startListening}
-    title="Speak question"
-    aria-label="Speak question"
-  >
-    <Mic size={17} />
-  </button>
-
-  {/* Export Chat */}
-  {/* <button
-    className="icon-button"
-    onClick={exportChat}
-    disabled={!messages.length}
-    title="Export chat"
-    aria-label="Export chat"
-  >
-    <ChevronDown size={17} />
-  </button> */}
-
-
-
-  {/* Mute / Enable Voice */}
-  <button
-    className={`icon-button ${muted ? "selected" : ""}`}
-    onClick={() => {
-      setMuted((v) => !v);
-
-      if (!muted) {
-        stopSpeech();
-      }
-    }}
-    aria-label={muted ? "Enable voice" : "Mute voice"}
-    title={muted ? "Enable voice" : "Mute voice"}
-  >
-    {muted ? <VolumeX size={17} /> : <Volume2 size={17} />}
-  </button>
-
-  {/* Accessibility */}
-  {/* <button
-    className="icon-button"
-    onClick={() => setAccessibilityOpen(true)}
-    aria-label="Accessibility"
-    title="Accessibility"
-  >
-    <UserCheck size={17} />
-  </button> */}
 
   {/* Settings */}
   <button
@@ -558,7 +618,29 @@ export default function App() {
   >
     <Settings2 size={17} />
   </button>
-</div>
+  {onOpenFeedback && (
+    <button
+      className="icon-button"
+      onClick={onOpenFeedback}
+      title="Give Feedback"
+      aria-label="Give Feedback"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "4px",
+        width: "auto",
+        padding: "8px 10px",
+        fontSize: "12px",
+        color: "#c084fc",
+        borderColor: "rgba(192, 132, 252, 0.35)",
+        background: "rgba(192, 132, 252, 0.08)",
+      }}
+    >
+      <MessageSquarePlus size={15} />
+      <span>Feedback</span>
+    </button>
+  )}
+        </div>
       </header>
 
 
@@ -643,12 +725,40 @@ export default function App() {
             <span className="eyebrow">LIVE TRANSMISSION</span>
             <span className="message-count">{messages.length ? `${messages.length} MESSAGES` : "NEW SESSION"}</span>
           </div>
-          <div className="conversation-tools">
+          <div className="conversation-tools" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
             <button className="text-action" onClick={exportChat} disabled={!messages.length}>
               Export <ChevronDown size={13} />
             </button>
             <button className="text-action" onClick={() => setMessages([])} disabled={!messages.length}>
               Clear
+            </button>
+            <button
+              className="text-action voice-toggle-btn"
+              type="button"
+              onClick={handleToggleVoice}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                handleToggleVoice(e);
+              }}
+              title={muted ? "Voice response: OFF (Click to turn ON)" : "Voice response: ON (Click to turn OFF)"}
+              aria-label={muted ? "Voice response is OFF" : "Voice response is ON"}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: "28px",
+                height: "28px",
+                minWidth: "28px",
+                padding: 0,
+                borderRadius: "6px",
+                background: muted ? "rgba(255, 255, 255, 0.03)" : "rgba(255, 255, 255, 0.08)",
+                borderColor: muted ? "rgba(255, 255, 255, 0.08)" : "rgba(255, 255, 255, 0.18)",
+                color: muted ? "rgba(226, 238, 230, 0.35)" : "#e2eee6",
+                cursor: "pointer",
+                touchAction: "manipulation",
+              }}
+            >
+              {muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
             </button>
           </div>
         </div>
@@ -789,6 +899,12 @@ export default function App() {
               type="button"
               className={`console-icon ${listening ? "active" : ""}`}
               onClick={listening ? stopListening : startListening}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                if (listening) stopListening();
+                else startListening();
+              }}
+              style={{ touchAction: "manipulation" }}
               title={listening ? "Stop listening" : "Speak your question"}
               aria-label={listening ? "Stop listening" : "Speak your question"}
             >
@@ -822,8 +938,8 @@ export default function App() {
 
       <footer className="app-footer">
         <span>ELIZA AI <b>©</b> 2026</span>
-        <span>BUILT FOR CURIOUS MINDS</span>
-        <span>DEVELOPED BY AKHIL THADAKA</span>
+        <span>AI makes mistakes, but every mistake drives improvement</span>
+        <span>DEVELOPED BY AKHIL THADAKA · READY TO WORK & FREELANCE · CONTACT: 9121751697</span>
       </footer>
 
       {accessibilityOpen && (
@@ -893,4 +1009,6 @@ export default function App() {
       />
     </main>
   );
-}
+});
+
+export default App;
