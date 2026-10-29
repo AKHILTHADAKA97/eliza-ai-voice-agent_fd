@@ -201,7 +201,7 @@ export default function App() {
       const isLocal = typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
       setError(
         isLocal
-          ? "Backend unavailable. Start FastAPI at http://127.0.0.1:8000 and refresh."
+          ? "Backend unavailable. Please start the FastAPI backend server and refresh."
           : "Backend unavailable. Please verify that the backend on Render is active."
       );
     }
