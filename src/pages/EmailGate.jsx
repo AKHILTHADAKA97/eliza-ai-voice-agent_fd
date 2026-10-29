@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Activity, ShieldCheck, AlertCircle, Clock, Sparkles, Phone, Briefcase, X } from "lucide-react";
 import { accessApi } from "../services/accessApi.js";
 import { signInWithGoogle } from "../services/firebase.js";
@@ -17,8 +17,7 @@ export default function EmailGate({ onAccessGranted, onShowFeedback, isModal = f
   const [error, setError] = useState("");
   const [blockedInfo, setBlockedInfo] = useState(null);
   const [emailInput, setEmailInput] = useState("");
-  const [showDirectEmail, setShowDirectEmail] = useState(false);
-  const [unauthorizedDomain, setUnauthorizedDomain] = useState("");
+  const emailInputRef = useRef(null);
 
   // Stop voice speech immediately when modal is opened
   useEffect(() => {
@@ -63,11 +62,18 @@ export default function EmailGate({ onAccessGranted, onShowFeedback, isModal = f
     } catch (err) {
       if (err.code === "CANCELLED") {
         setError("");
-      } else if (err.code === "auth/unauthorized-domain" || err.message?.includes("unauthorized-domain")) {
-        const domain = err.domain || (typeof window !== "undefined" ? window.location.hostname : "");
-        setUnauthorizedDomain(domain);
-        setShowDirectEmail(true);
-        setError(`This domain (${domain}) is waiting for authorization in Firebase Console. Enter your Google email below to continue without delay.`);
+      } else if (
+        err.code === "auth/unauthorized-domain" ||
+        err.message === "UNAUTHORIZED_DOMAIN" ||
+        err.message?.includes("unauthorized-domain") ||
+        err.code === "auth/popup-blocked"
+      ) {
+        // If domain is not authorized in Firebase popup or popup is restricted,
+        // seamlessly focus the direct Google email input without generating any error alerts
+        setError("");
+        if (emailInputRef.current) {
+          emailInputRef.current.focus();
+        }
       } else {
         setError(err.message || "Google sign-in failed. Please try again.");
       }
@@ -220,44 +226,35 @@ export default function EmailGate({ onAccessGranted, onShowFeedback, isModal = f
               </button>
             </div>
 
-            {/* Direct Email Verification (Resolves unlisted domain or mobile popup restrictions) */}
-            {showDirectEmail ? (
-              <form onSubmit={handleDirectEmailSubmit} className="direct-email-box">
-                <div className="direct-input-row">
-                  <input
-                    type="email"
-                    placeholder="Enter your Google email..."
-                    value={emailInput}
-                    onChange={(e) => setEmailInput(e.target.value)}
-                    disabled={loading}
-                    autoFocus
-                    required
-                    className="direct-email-input"
-                  />
-                  <button
-                    type="submit"
-                    className="btn-direct-verify"
-                    disabled={loading || !emailInput.trim()}
-                  >
-                    {loading ? "Verifying..." : "Continue"}
-                  </button>
-                </div>
-                {unauthorizedDomain && (
-                  <div className="domain-help-tip">
-                    <span>💡 To authorize 1-click popup on <b>{unauthorizedDomain}</b>:</span>
-                    <code>Firebase Console &gt; Auth &gt; Settings &gt; Authorized domains &gt; Add &quot;{unauthorizedDomain}&quot;</code>
-                  </div>
-                )}
-              </form>
-            ) : (
-              <button
-                type="button"
-                className="btn-toggle-direct"
-                onClick={() => setShowDirectEmail(true)}
-              >
-                Or enter your Google email directly
-              </button>
-            )}
+            <div className="gate-divider">
+              <span>OR ENTER EMAIL</span>
+            </div>
+
+            {/* Direct Email Verification */}
+            <form onSubmit={handleDirectEmailSubmit} className="direct-email-box">
+              <div className="direct-input-row">
+                <input
+                  ref={emailInputRef}
+                  type="email"
+                  placeholder="Enter your Google email..."
+                  value={emailInput}
+                  onChange={(e) => {
+                    setEmailInput(e.target.value);
+                    if (error) setError("");
+                  }}
+                  disabled={loading}
+                  required
+                  className="direct-email-input"
+                />
+                <button
+                  type="submit"
+                  className="btn-direct-verify"
+                  disabled={loading || !emailInput.trim()}
+                >
+                  {loading ? "Verifying..." : "Continue"}
+                </button>
+              </div>
+            </form>
 
             <div className="gate-perks">
               <div className="perk-item">
@@ -648,22 +645,27 @@ export default function EmailGate({ onAccessGranted, onShowFeedback, isModal = f
         .btn-link:hover {
           color: #e2eee6;
         }
-        .btn-toggle-direct {
-          width: 100%;
-          background: none;
-          border: none;
-          color: rgba(226, 238, 230, 0.6);
-          font-size: 11px;
-          cursor: pointer;
-          margin-top: 8px;
-          text-decoration: underline;
-          transition: color 0.2s;
+        .gate-divider {
+          display: flex;
+          align-items: center;
+          margin: 14px 0 10px 0;
+          color: rgba(226, 238, 230, 0.4);
+          font-size: 10px;
+          font-weight: 700;
+          letter-spacing: 0.8px;
         }
-        .btn-toggle-direct:hover {
-          color: #10b981;
+        .gate-divider::before,
+        .gate-divider::after {
+          content: '';
+          flex: 1;
+          height: 1px;
+          background: rgba(255, 255, 255, 0.08);
+        }
+        .gate-divider span {
+          padding: 0 10px;
         }
         .direct-email-box {
-          margin-top: 10px;
+          margin-top: 2px;
           width: 100%;
         }
         .direct-input-row {
@@ -672,7 +674,7 @@ export default function EmailGate({ onAccessGranted, onShowFeedback, isModal = f
         }
         .direct-email-input {
           flex: 1;
-          padding: 8px 12px;
+          padding: 9px 12px;
           background: rgba(255, 255, 255, 0.05);
           border: 1px solid rgba(255, 255, 255, 0.12);
           border-radius: 8px;
@@ -685,7 +687,7 @@ export default function EmailGate({ onAccessGranted, onShowFeedback, isModal = f
           border-color: #10b981;
         }
         .btn-direct-verify {
-          padding: 8px 14px;
+          padding: 9px 15px;
           background: #10b981;
           color: #0b120e;
           font-size: 11.5px;
@@ -702,24 +704,6 @@ export default function EmailGate({ onAccessGranted, onShowFeedback, isModal = f
         .btn-direct-verify:disabled {
           opacity: 0.5;
           cursor: not-allowed;
-        }
-        .domain-help-tip {
-          margin-top: 8px;
-          padding: 6px 10px;
-          background: rgba(234, 179, 8, 0.08);
-          border: 1px solid rgba(234, 179, 8, 0.2);
-          border-radius: 6px;
-          font-size: 10px;
-          color: #fef08a;
-          line-height: 1.4;
-        }
-        .domain-help-tip code {
-          display: block;
-          margin-top: 4px;
-          font-family: 'DM Mono', monospace;
-          color: #facc15;
-          font-size: 9.5px;
-          word-break: break-all;
         }
       `}</style>
     </div>

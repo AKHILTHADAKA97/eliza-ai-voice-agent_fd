@@ -92,10 +92,8 @@ export async function signInWithGoogle() {
       throw new Error("Popup blocked by browser. Please allow popups for this site and try again.");
     }
     if (err.code === "auth/unauthorized-domain") {
-      const host = typeof window !== "undefined" ? window.location.hostname : "this domain";
-      const customErr = new Error(`This domain (${host}) is not authorized in Firebase Console (Authentication > Settings > Authorized domains).`);
+      const customErr = new Error("UNAUTHORIZED_DOMAIN");
       customErr.code = "auth/unauthorized-domain";
-      customErr.domain = host;
       throw customErr;
     }
     throw new Error(err.message || "Failed to sign in with Google.");
