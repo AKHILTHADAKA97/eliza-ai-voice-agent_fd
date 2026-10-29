@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { Activity, ShieldCheck, AlertCircle, Clock, Sparkles, Phone, Briefcase, X } from "lucide-react";
 import { accessApi } from "../services/accessApi.js";
 import { signInWithGoogle } from "../services/firebase.js";
@@ -16,8 +16,6 @@ export default function EmailGate({ onAccessGranted, onShowFeedback, isModal = f
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [blockedInfo, setBlockedInfo] = useState(null);
-  const [emailInput, setEmailInput] = useState("");
-  const emailInputRef = useRef(null);
 
   // Stop voice speech immediately when modal is opened
   useEffect(() => {
@@ -65,50 +63,15 @@ export default function EmailGate({ onAccessGranted, onShowFeedback, isModal = f
       } else if (
         err.code === "auth/unauthorized-domain" ||
         err.message === "UNAUTHORIZED_DOMAIN" ||
-        err.message?.includes("unauthorized-domain") ||
-        err.code === "auth/popup-blocked"
+        err.message?.includes("unauthorized-domain")
       ) {
-        // If domain is not authorized in Firebase popup or popup is restricted,
-        // seamlessly focus the direct Google email input without generating any error alerts
-        setError("");
-        if (emailInputRef.current) {
-          emailInputRef.current.focus();
-        }
+        const host = typeof window !== "undefined" ? window.location.hostname : "this domain";
+        setError(`Please authorize "${host}" in Firebase Console (Authentication > Settings > Authorized domains) to allow Google Sign-In.`);
+      } else if (err.code === "auth/popup-blocked") {
+        setError("Popup blocked by browser. Please allow popups for this site and try again.");
       } else {
         setError(err.message || "Google sign-in failed. Please try again.");
       }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Direct Google Email Verification Fallback
-  const handleDirectEmailSubmit = async (e) => {
-    if (e) e.preventDefault();
-    const cleanEmail = emailInput.trim().toLowerCase();
-    if (!cleanEmail || !cleanEmail.includes("@") || !cleanEmail.includes(".")) {
-      setError("Please enter a valid Google email address.");
-      return;
-    }
-
-    try {
-      sessionStorage.removeItem("eliza_pending_q");
-    } catch {}
-
-    setError("");
-    setLoading(true);
-    try {
-      const result = await accessApi.verifyEmail(cleanEmail);
-      if (result.blocked) {
-        setBlockedInfo(result);
-        if (onAccessGranted) onAccessGranted(result);
-      } else if (result.allowed) {
-        if (onAccessGranted) onAccessGranted(result);
-      } else {
-        setError(result.message || "Access not available at this time.");
-      }
-    } catch (err) {
-      setError(err.message || "Failed to verify email. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -225,36 +188,6 @@ export default function EmailGate({ onAccessGranted, onShowFeedback, isModal = f
                 )}
               </button>
             </div>
-
-            <div className="gate-divider">
-              <span>OR ENTER EMAIL</span>
-            </div>
-
-            {/* Direct Email Verification */}
-            <form onSubmit={handleDirectEmailSubmit} className="direct-email-box">
-              <div className="direct-input-row">
-                <input
-                  ref={emailInputRef}
-                  type="email"
-                  placeholder="Enter your Google email..."
-                  value={emailInput}
-                  onChange={(e) => {
-                    setEmailInput(e.target.value);
-                    if (error) setError("");
-                  }}
-                  disabled={loading}
-                  required
-                  className="direct-email-input"
-                />
-                <button
-                  type="submit"
-                  className="btn-direct-verify"
-                  disabled={loading || !emailInput.trim()}
-                >
-                  {loading ? "Verifying..." : "Continue"}
-                </button>
-              </div>
-            </form>
 
             <div className="gate-perks">
               <div className="perk-item">
@@ -644,66 +577,6 @@ export default function EmailGate({ onAccessGranted, onShowFeedback, isModal = f
         }
         .btn-link:hover {
           color: #e2eee6;
-        }
-        .gate-divider {
-          display: flex;
-          align-items: center;
-          margin: 14px 0 10px 0;
-          color: rgba(226, 238, 230, 0.4);
-          font-size: 10px;
-          font-weight: 700;
-          letter-spacing: 0.8px;
-        }
-        .gate-divider::before,
-        .gate-divider::after {
-          content: '';
-          flex: 1;
-          height: 1px;
-          background: rgba(255, 255, 255, 0.08);
-        }
-        .gate-divider span {
-          padding: 0 10px;
-        }
-        .direct-email-box {
-          margin-top: 2px;
-          width: 100%;
-        }
-        .direct-input-row {
-          display: flex;
-          gap: 6px;
-        }
-        .direct-email-input {
-          flex: 1;
-          padding: 9px 12px;
-          background: rgba(255, 255, 255, 0.05);
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          border-radius: 8px;
-          color: #fff;
-          font-size: 12px;
-          outline: none;
-          transition: border-color 0.2s;
-        }
-        .direct-email-input:focus {
-          border-color: #10b981;
-        }
-        .btn-direct-verify {
-          padding: 9px 15px;
-          background: #10b981;
-          color: #0b120e;
-          font-size: 11.5px;
-          font-weight: 700;
-          border: none;
-          border-radius: 8px;
-          cursor: pointer;
-          white-space: nowrap;
-          transition: background 0.2s;
-        }
-        .btn-direct-verify:hover:not(:disabled) {
-          background: #34d399;
-        }
-        .btn-direct-verify:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
         }
       `}</style>
     </div>
